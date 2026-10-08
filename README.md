@@ -99,6 +99,10 @@ scope as
 describes. The architecture also covers
 [register, enable, select](./docs/architecture.md#register-enable-select)
 and [where a workspace-authored realization lives](./docs/architecture.md#where-a-workspace-authored-realization-lives).
+A workspace can also override an installed realization with its own, which
+the activation check reports, or extend one, which it guards against an
+update that breaks the extension
+([extending an installed realization](./docs/architecture.md#extending-an-installed-realization)).
 A workspace that authors realizations of its own can add
 `guidance-conventions` to validate them.
 

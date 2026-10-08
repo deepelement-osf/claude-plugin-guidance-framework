@@ -241,8 +241,9 @@ doesn't care where a realization physically lives.
 
 #### Where a workspace-authored realization lives
 
-A workspace-authored realization lives at `.claude/skills/realize-<name>/`
-in the consuming workspace: a `SKILL.md` with a sibling `schema.json`,
+A workspace-authored realization lives directly under `.claude/skills/`
+in the consuming workspace, in a directory named `realize-<name>/` or
+`realize-<concept>-<name>/`: a `SKILL.md` with a sibling `schema.json`,
 and the same `realizes` block as any other realization (§10). It is a
 skill in the workspace, not a plugin, so it has no `plugin.json` and no
 `dependencies`; the workspace registers the guidance marketplace and
@@ -250,19 +251,338 @@ enables `guidance-activation-check` itself, so the skill's first
 instruction (§6) can run.
 
 This is the location the activation check reads for the realization use
-case, and only one level deep: `realize-<name>/` directly under
-`.claude/skills/`. It is not a restriction on any other local override
-(§10): a workspace may keep whatever else it likes elsewhere, and
-guidance does not look. A realization kept elsewhere is simply not a
-candidate the activation check will find, so a selection that names it is
-reported as stale (§6). `validate-concept-plugin` check B4 reports a
-workspace-authored realization outside this location as an error, and B1
-does the same for a selected skill whose `realizes` block is missing or
-malformed, which the check cannot find either. It checks nothing else
-about where a workspace keeps its skills.
+case, one level deep and directly under `.claude/skills/`, which is also
+where Claude Code discovers a project skill. It is not a restriction on
+any other local override (§10): a workspace may keep whatever else it
+likes elsewhere, and guidance does not look. A realization kept elsewhere
+is simply not a candidate the activation check will find, so a selection
+that names it is reported as stale (§6). `validate-concept-plugin` check
+B4 reports a workspace-authored realization outside this location as an
+error, B5 and B6 report an identity mismatch or a duplicate, B7 to B9
+check an `extends` declaration, and B1 does the same for a selected skill
+whose `realizes` block is missing or malformed, which the check cannot
+find either. It checks nothing else about where a workspace keeps its
+skills.
+
+Which of the two directory forms to use, and how the realization's name is
+derived, is in
+[identity of a workspace-authored realization](#identity-of-a-workspace-authored-realization).
+A workspace-authored realization can also build on an installed one; see
+[extending an installed realization](#extending-an-installed-realization).
 
 A workspace-authored realization with the same name as an installed one
-wins; see "Defaults and collisions" in §10.
+wins, and the activation check says so; see "Defaults and collisions" in
+§10.
+
+#### Identity of a workspace-authored realization
+
+A realization is identified by the pair (concept, realization name) (§10,
+"Defaults and collisions"). For a workspace-authored realization, the
+`realizes` block in its `SKILL.md` declares that pair and the directory
+mirrors it. The path mirrors identity; it does not carry it.
+
+Two directory forms are accepted for the same pair:
+
+| Form | Directory | Realization name | `realization` key |
+|---|---|---|---|
+| Short | `realize-<name>/` | The `realization` key if present, else the directory name without `realize-` | Optional. If present it must equal the directory name without `realize-` |
+| Long | `realize-<concept>-<name>/` | The `realization` key | Required |
+
+`<concept>` is the bare concept name from the block's `concept` (`secrets`
+for `secrets@acme-concepts`). The qualifier is not part of the path. The
+long form is recommended for new realizations, because the path then
+states the concept to a human reader. It is never required, and the short
+form stays valid.
+
+The `realizes` block gains one optional key, `realization`. This is the
+block of a realization at `.claude/skills/realize-secrets-aws/SKILL.md`:
+
+~~~markdown
+```realizes
+concept: secrets@acme-concepts
+contractVersion: "^1.1.0"
+realization: aws
+```
+~~~
+
+The grammar:
+
+- `realization` is lowercase letters, digits and single hyphens, with no
+  consecutive hyphens, so it agrees with the Agent Skills name rule. It
+  must not start with `realize-`.
+- With the key, the directory must be `realize-<name>` or
+  `realize-<concept>-<name>`. Without the key, the directory must start
+  with `realize-` and the name is the rest of it, which is the rule before
+  the key existed.
+- The skill's frontmatter `name` is not read by the activation check. Omit
+  it, or set it equal to the directory name, as the Agent Skills
+  specification requires.
+- The Agent Skills limit on a directory name is 64 characters.
+  `validate-concept-plugin` reports a longer one without blocking. Whether
+  Claude Code enforces the limit has not been verified.
+- The realization's first instruction (§7) passes the name (the
+  `realization` value, or the short-form name) to the activation check, as
+  before.
+
+The block is authoritative for the pair (concept, name). The directory is
+a mirror the check verifies by composing the expected names from the
+block. It does not parse a directory name, because concept and realization
+names are themselves hyphenated and a flat directory name cannot say where
+one ends. When the directory and the block disagree, the check does not
+guess which the author meant: the directory is not a candidate. That
+halts a run only when it matters to it, that is, when the directory is the
+caller's or the selected bare name matches it, so one stray directory does
+not stop every other realization of the concept. Otherwise normal mode
+skips it, and the audit mode of the check and `validate-concept-plugin`
+(B5, B6) report it. Two directories that give the same pair are a
+duplicate, handled the same way.
+
+The same realization name can serve two concepts: `realize-secrets-aws/`
+and `realize-queues-aws/`, each with `realization: aws`, are each a
+candidate only for their own concept, so `secrets` and `queues` each
+select `aws` and resolve correctly. The short form cannot do this alone,
+because `realize-aws` is one directory. Two cases are not supported: two
+concepts whose bare names are equal but whose marketplaces differ, with the
+same realization name; and pairs such as (`a-b`, `c`) and (`a`, `b-c`),
+which compose the same directory name. Use different realization names, or
+the short form for one of them.
+
+**Existing workspaces change nothing.** A directory without the
+`realization` key behaves as it did, and no existing input starts to halt.
+A workspace that adopts the long form or the key needs
+`guidance-activation-check` 1.1.0 or later; on an older check the symptom
+is a stale-selection halt, because it reads `realize-secrets-aws/` as a
+realization named `secrets-aws`. No symlink is used or required.
+
+**Alternatives that were not adopted.** A dedicated location such as
+`.claude/realizations/<concept>/<name>/` is not a place Claude Code loads
+skills from, so a skill kept there could not be invoked unless it were
+also linked into `.claude/skills/`. That makes a symlink part of the
+convention. How `${CLAUDE_SKILL_DIR}` resolves under a symlink, and
+whether symlinks survive a Windows checkout or a cloud session, are not
+documented, and guidance asks for neither.
+
+A reserved separator in the directory name, such as
+`realize-<concept>--<name>`, goes against the Agent Skills rule that a
+skill name has no consecutive hyphens. Claude Code's documentation does
+not say whether it enforces that rule, and a rejected name would fail
+without a clear message. Guidance does not rely on it.
+
+The directory is therefore checked against the identity in the `realizes`
+block, not the other way round. Either of the two alternatives can be added
+later, as an additional form that changes nothing here, once it has been
+tried on a stated Claude Code version and recorded as "Observed on Claude
+Code `<version>`".
+
+#### Extending an installed realization
+
+A workspace-authored realization can override an installed one: when it
+has the same name, it wins (§10, "Defaults and collisions"). It can also
+build on one. An optional `extends` key in its `realizes` block names the
+installed realization it builds on and the range of that realization's
+plugin version it was written for. If an update moves the installed
+realization outside that range, the activation check halts instead of
+letting the extension run against something it was not tested with.
+
+`extends` here relates one workspace realization to one installed
+realization of the same concept; no concept is extended. The
+additive-only rule (§9) and the rules for realization marketplaces (§10)
+are about concepts and are not affected.
+
+Two terms: the **base** is the installed realization that `extends` names,
+and the **extender** is the workspace realization that declares it.
+
+~~~markdown
+```realizes
+concept: secrets@acme-concepts
+contractVersion: "^1.1.0"
+realization: aws
+extends:
+  realization: aws@acme-aws-realizations
+  version: "^1.4.0"
+```
+~~~
+
+| Key | Required | Meaning |
+|---|---|---|
+| `extends` | No | A mapping. Absent means no base and nothing extra is checked. Valid only in a workspace-authored realization. |
+| `extends.realization` | Yes | The base, always qualified: `<name>@<marketplace>`, the marketplace being the one in the base plugin's `id`. A bare name is rejected, which also rules out extending a workspace realization, this one included. |
+| `extends.version` | Yes | A range over the base plugin's installed version, quoted, in the grammar below. |
+
+Any other key under `extends` halts, naming the key, so a mistyped
+`versions:` cannot silently drop the check. Unknown top-level keys of the
+block are ignored by the check, as before. The extender's name may equal
+the base's name, which is the usual case: it overrides the base and builds
+on it. A different name is also valid, for example an `aws-strict`
+extender of `aws@acme-aws-realizations`. A range may have a lower and an
+upper bound:
+
+```
+extends:
+  realization: aws@acme-aws-realizations
+  version: ">=1.4.0 <1.7.0"
+```
+
+**What is compared.** There are two version numbers, and they stay
+separate (§10, "Version axes").
+
+| Check | Installed number | Compared with |
+|---|---|---|
+| Version of the base | The base plugin's installed version: the plugin that ships the base, as `claude plugin list --json` reports it (its `folderVersion` when the entry has one). For a base shipped inside the defining plugin, this is the concept plugin's version. | `extends.version` |
+| Contract the base accepts | The installed Tier 2 `contractVersion` | The base's own `realizes.contractVersion` |
+| The extender's own contract (as before) | The installed Tier 2 `contractVersion` | The extender's own `realizes.contractVersion` |
+
+The version is whatever Claude Code reports for the plugin: the one in
+`plugin.json`, or the marketplace entry's when the manifest sets none. A git
+tag and a per-realization `schema.json` `contractVersion` are not used.
+
+`extends` has no contract range of its own. The installed Tier 2 number is
+already compared with a range the extender declares at the top of the same
+block; a second range over the same number would add a knob and a second
+halt for one root cause. What can change when only the base updates is
+whether the base still accepts the installed contract, and that is the
+base-contract check. If the base has no `realizes` block or its range
+cannot be read, that check is skipped and the report says so.
+
+**The range grammar.** `extends.version` takes a deliberately small subset
+of node-semver, so any accepted range is also valid for Claude Code's own
+dependency ranges (see
+[declaring a version constraint](https://code.claude.com/docs/en/plugins/dependencies#declare-a-dependency-with-a-version-constraint)):
+one comparator, or a lower bound and an upper bound.
+
+```
+range      := comparator | lower SP upper
+comparator := ["=" | "^" | "~" | ">=" | ">" | "<=" | "<"] version
+lower      := (">=" | ">") version
+upper      := ("<=" | "<") version
+version    := NUM "." NUM "." NUM
+NUM        := "0" | a digit 1-9 followed by zero or more digits
+```
+
+- A bare `version` and `=version` both mean exactly that version.
+- There is exactly one space between the two bounds and none after an
+  operator.
+- Not accepted: partial versions (`1.4`, `^1.4`), `x`, `*`, `latest`, a
+  leading `v`, a pre-release or build suffix (`1.4.0-rc.1`, `1.4.0+b`),
+  `||`, hyphen ranges, three or more clauses, `^` or `~` combined with
+  another clause, two lower bounds, an upper bound first, an empty string,
+  and a pair that no version can satisfy (`>=2.0.0 <1.0.0`).
+
+A range expands to bounds:
+
+- `^M.m.p`: if M is above 0, `>=M.m.p <(M+1).0.0`; else if m is above 0,
+  `>=0.m.p <0.(m+1).0`; else `>=0.0.p <0.0.(p+1)`.
+- `~M.m.p`: `>=M.m.p <M.(m+1).0`.
+- `=M.m.p` or bare: exactly `M.m.p`.
+- A pair: both bounds must hold.
+
+The three numbers are compared as integers, left to right, never as
+strings (1.10.0 is greater than 1.9.0). The check prints the expanded
+bounds in every pass line and every breach message, and the breach
+message names the component that decides, so a slip in the arithmetic is
+visible to a person.
+
+| Installed | Range | Expands to | Result |
+|---|---|---|---|
+| 1.4.2 | `^1.4.0` | `>=1.4.0 <2.0.0` | satisfies |
+| 1.3.9 | `^1.4.0` | `>=1.4.0 <2.0.0` | below (minor 3 < 4) |
+| 2.0.0 | `^1.4.0` | `>=1.4.0 <2.0.0` | above (major 2 is not below 2) |
+| 1.10.0 | `^1.9.0` | `>=1.9.0 <2.0.0` | satisfies (10 > 9 as numbers) |
+| 1.4.2 | `~1.4.0` | `>=1.4.0 <1.5.0` | satisfies |
+| 1.5.0 | `~1.4.0` | `>=1.4.0 <1.5.0` | above |
+| 0.3.9 | `^0.3.1` | `>=0.3.1 <0.4.0` | satisfies |
+| 0.4.0 | `^0.3.1` | `>=0.3.1 <0.4.0` | above (caret on 0.x stops at the next minor) |
+| 0.0.4 | `^0.0.3` | `>=0.0.3 <0.0.4` | above (only 0.0.3 satisfies) |
+| 1.4.2 | `>=1.4.0 <2.0.0` | as written | satisfies |
+| 1.4.2 | `1.4.2` or `=1.4.2` | exactly 1.4.2 | satisfies |
+| 1.4.3 | `1.4.2` | exactly 1.4.2 | above |
+| 1.4.2 | `^1.4` | | invalid range |
+| 1.4.2 | `>=1.0.0 \|\| ^2.0.0` | | invalid range |
+| 1.4.2 | `>= 1.4.0` | | invalid range |
+
+An installed version that is not exactly `MAJOR.MINOR.PATCH` cannot be
+compared, and the check halts on it rather than passing: a commit SHA,
+`unknown`, a pre-release or build suffix (`2.0.0-beta.1`), a two-part
+version or no version. A plugin whose `plugin.json` and marketplace entry
+set no `version` is reported under a commit SHA or `unknown` (see
+[how the version is computed](https://code.claude.com/docs/en/plugins/loading#versions-and-updates)),
+so a base is usable with `extends` only when its author sets a plain
+release number. The check cannot know whether such an update breached the
+range, so it does not pass silently.
+
+**What halts.** All of these stop the run before the realization does any
+work, and each message names the file to fix and the remedy:
+
+- a malformed `extends`: not a mapping, `realization` or `version` missing
+  or empty, or an unknown key;
+- a bare name in `extends.realization`;
+- a `version` outside the grammar;
+- the base is not installed, is installed but not loaded (disabled or
+  reporting errors), is offered by another marketplace than the one named,
+  realizes a different concept, or is ambiguous because two loaded plugins
+  of that marketplace ship it;
+- the base's plugin is installed at several scopes with versions that
+  disagree about the range;
+- the installed version cannot be compared;
+- the installed version is above or below the range;
+- the base declares a `contractVersion` range that the installed Tier 2
+  version does not satisfy.
+
+In a result labelled BEST-EFFORT, versions come from
+`installed_plugins.json` and "installed but not loaded" cannot be
+confirmed, so that one does not halt. The audit mode of the check runs the
+same checks for every workspace realization that declares `extends`,
+selected or not, and reports a failure under its concept without stopping
+the rest of the audit.
+
+**When a breach is noticed.** At the extender's next activation-check run,
+or an audit. Claude Code documents no hook event for a plugin update,
+whether a marketplace auto-updates depends on its `autoUpdate` setting, and
+a running session keeps the version it loaded, so `claude plugin list` can show a newer version than the one the
+session loaded. After changing plugins, run `/reload-plugins`, then run
+the check again.
+
+**Composition.** `extends` records a dependency and a guard. It does not
+run the base. If the extender invoked the installed base as a skill, the
+base's own first instruction would call the activation check, which would
+halt because the workspace selected the extender, not the base. So the
+extender reads the base's instructions, at the path the check reports on
+success, and follows them, skipping the base's own activation-check
+instruction because the extender's run already covers it. It does not
+invoke the base. The same rule means a user who invokes the installed base
+directly while the workspace overrides it is told so and stopped, which is
+what the override notice exists to surface. A legacy caller, which passes
+only a name, cannot be told apart from the workspace realization that
+shares it, so for such a caller the check notes that it could not confirm
+which one was invoked instead of stopping. The extender's `schema.json` need not be a superset of
+the base's; it must still be a superset of Tier 2 (§7).
+
+**An older activation check ignores `extends`.** A workspace skill has no
+`dependencies` in which to declare a minimum plugin version, so a check
+older than 1.1.0 would run the extender without any version guard. The
+defence is a line that exists only on success: when the check passes an
+extender, its report contains one line that begins with
+`Extends checked:`. It never appears in a halt. An extender's first
+instruction (§7) therefore says to stop when that line is absent:
+
+> Run `guidance-activation-check:check-realization-config` first, passing
+> concept `secrets@acme-concepts`, name `aws`, and `${CLAUDE_SKILL_DIR}`.
+> If that skill is unavailable, stop and tell the user to register and
+> enable `guidance-activation-check`. This realization extends an installed
+> one: if the result has no line beginning `Extends checked:`, stop and
+> tell the user to update `guidance-activation-check` to 1.1.0 or later.
+
+`validate-concept-plugin` check B9 requires this clause whenever `extends`
+is declared. A model that ignores the clause is a residual risk the
+convention cannot remove.
+
+**In a plugin's realization.** `extends` and `realization` are for
+workspace-authored realizations only. In a realization shipped in a plugin
+the check ignores them at run time, with a notice for `extends`, and never
+halts on them. `validate-concept-plugin` check E6 blocks them for the
+plugin's author: a plugin declares a dependency in its marketplace entry
+(§9), and a plugin realization's name is its directory name without
+`realize-`.
 
 ### 3. Workspace configuration: `marketplace-plugin-settings.yml`
 
@@ -307,7 +627,7 @@ consuming workspace in three steps, plus a qualification when needed:
 | 1. Register every marketplace involved | `.claude/settings.json` [`extraKnownMarketplaces`](https://code.claude.com/docs/en/settings-reference#extraknownmarketplaces), under a key equal to the marketplace's `name` | Settings are not transitive; §9 says what the workspace must register, and the guidance marketplace is one of them (§10). Registering makes realizations available and turns none on. |
 | 2. Enable the plugins | `enabledPlugins`, or `claude plugin install` | §9 explains install versus enable. An enabled realization is a candidate for selection. |
 | 3. Select | `marketplace-plugin-settings.yml`, `<concept>: realization: <name>` | The one binding file. |
-| 4. Qualify, only when ambiguous | `realization: aws-secrets-manager@acme-aws-realizations` | Needed only if the bare name matches more than one candidate. The qualifier is the marketplace that ships the realization. |
+| 4. Qualify, only when ambiguous | `realization: aws-secrets-manager@acme-aws-realizations` | Needed only if the bare name matches more than one candidate. The qualifier is the marketplace that ships the realization. Qualifying is also how a workspace opts back to an installed realization that its own shadows. |
 
 ```yaml
 secrets:
@@ -457,19 +777,25 @@ A dedicated plugin, `guidance-activation-check`, provides a shared skill
 that any Tier 3 realization's instructions invoke first, before doing
 real work, passing the concept, the realization's own name and its own
 skill directory. A caller that passes names only still works, without the
-contract-version gate or the no-entry fallback. The skill:
+contract-version gate or the no-entry fallback. It still gets the override
+notice and the `extends` check, which read the selected candidate's files.
+The skill:
 
 1. Reads `marketplace-plugin-settings.yml` for the concept in question.
 2. Confirms which realization applies and that it matches the
    realization currently running: the one the workspace selected, or, with
    no entry for the concept, the defining marketplace's default (see "No
    entry for the concept"). This catches a stale selection after an
-   update to the defining marketplace renames or removes a realization.
+   update to the defining marketplace renames or removes a realization, and
+   says when the workspace's own realization overrides an installed one.
 3. Checks that the installed Tier 2 `contractVersion` satisfies the range
    the realization declares in its `realizes` block (§10, "Version axes").
-4. Validates the `config` block against the active realization's
+4. If the selected workspace-authored realization declares `extends`,
+   checks that the base is installed and loaded and that its plugin version
+   and its contract fit the declared ranges (§2).
+5. Validates the `config` block against the active realization's
    `schema.json` (§3, §7), reporting specific missing/invalid fields.
-5. If anything fails, halts with a clear, actionable message (what's
+6. If anything fails, halts with a clear, actionable message (what's
    missing, which file to edit, which schema to satisfy) **instead of**
    letting the realization proceed and fail deeper or silently
    misbehave.
@@ -484,7 +810,11 @@ The plugin is a runtime dependency of every realization that ships in a
 plugin: the realization plugin's marketplace entry declares it with a
 semver range (§10, "Dependency, allowlist and README"). A workspace-authored
 realization has no plugin, so the workspace registers the guidance
-marketplace and enables the plugin itself (§2).
+marketplace and enables the plugin itself (§2). A workspace-authored
+realization that uses the long directory form, the `realization` key or
+`extends` needs `guidance-activation-check` 1.1.0 or later. An older check
+ignores `extends` silently, so an extender's first instruction requires
+the confirmation line (§2).
 
 #### No entry for the concept
 
@@ -523,6 +853,16 @@ realization runs should select it.
   then loads the main checkout's skills. It compares directories after
   resolving real paths, and labels a result **BEST-EFFORT** when the
   workspace root and the caller's directory differ.
+- It reports an override only for workspace realizations it can see. In a
+  result labelled **BEST-EFFORT**, the absence of an override notice proves
+  nothing.
+- It checks `extends` only when it runs, not when a plugin updates, and a
+  running session keeps the version it loaded (§2).
+- It sees only the plugin version, so a base that changes without a version
+  bump is invisible to it.
+- It confirms that the base is installed and in range. It does not run or
+  test the extension, and the extender reads the base's instructions rather
+  than invoking the base (§2).
 
 The skill needs Claude Code v2.1.196 or later, the version that
 substitutes `${CLAUDE_PROJECT_DIR}` in a skill
@@ -641,7 +981,9 @@ these conventions.
   enable `guidance-activation-check`. A realization plugin declares the
   plugin as a dependency so that is rare (§10); a workspace-authored
   realization has no plugin to declare it in, so the line is its only
-  safeguard (§2).
+  safeguard (§2). The first instruction of a realization that declares
+  `extends` also says to stop when the result has no line beginning
+  `Extends checked:` (§2, "Extending an installed realization").
 - If a realization is the concept's pinned default (§4), say so
   explicitly in its SKILL.md (not only in the concept skill), so anyone
   reading the realization file directly still knows its status.
@@ -983,8 +1325,18 @@ contractVersion: "^1.1.0"
   with no pre-release suffix. A realization is compatible when the Tier 2
   `contractVersion` of the concept it targets satisfies the range (see
   "Version axes").
+- `realization` (optional, only meaningful in a workspace-authored
+  realization) is the realization's name. It is what the block says the
+  name is, and the directory is checked against it; see
+  [identity of a workspace-authored realization](#identity-of-a-workspace-authored-realization).
+- `extends` (optional, workspace-authored only) names an installed
+  realization that this one builds on, with a version range the activation
+  check enforces; see
+  [extending an installed realization](#extending-an-installed-realization).
 - The block is required in a realization marketplace and in a
-  workspace-authored realization. It is recommended in the realizations
+  workspace-authored realization. `realization` and `extends` are optional
+  and only meaningful in a workspace-authored realization; a plugin's
+  realization carries neither. The block is recommended in the realizations
   the defining marketplace ships in its own concept plugin.
 - There is no default marker. The defining plugin is the entry dependency
   (next section) whose marketplace equals the qualifier in `concept`.
@@ -1096,14 +1448,15 @@ The default of a concept is the one realization its defining marketplace
 marks (§4), and only that marketplace can mark one. A workspace's
 selection overrides the default for that workspace and never makes
 another realization "the default". A realization is identified by the
-pair (concept, realization name).
+pair (concept, realization name); for a workspace-authored realization the
+pair is declared in its `realizes` block (§2).
 
 | Case | Rule |
 |---|---|
 | The same realization name for different concepts | Not a collision. |
 | The same name for the same concept from two installed marketplaces | Ambiguous: a bare name cannot say which is meant. The workspace uses the qualified form `realization@marketplace`, whose qualifier is the marketplace that ships it. |
 | The same name in two plugins of one realization marketplace | Not allowed: within a marketplace, each (concept, realization name) is unique, so a qualified name resolves to exactly one source. |
-| A workspace-authored realization with the same name as an installed one | The workspace's own wins. It is not ambiguous and does not halt. |
+| A workspace-authored realization with the same name as an installed one | The workspace's own wins. It is not ambiguous and does not halt. The activation check prints one notice naming the shadowed `realization@marketplace` and its installed version, and its audit mode lists every override. |
 | A realization marketplace that wants to replace the default | Not possible by design. The workspace selects the realization explicitly. |
 
 Skills are namespaced by plugin, so a same-named skill never replaces
@@ -1111,12 +1464,13 @@ another by itself
 ([resolving skills that share a name](https://code.claude.com/docs/en/skills#resolve-skills-that-share-a-name)).
 "Wins" in the fourth row is the pattern's own order of
 resolution (workspace first, then installed realizations), not a Claude
-Code feature.
+Code feature, and the activation check reports it.
 
 A newly installed marketplace therefore cannot silently replace a working
-realization. If a bare name that was unique becomes ambiguous, the
-workspace qualifies it. Qualify the existing selection before installing a
-second marketplace that offers the same name.
+realization, and an override is never silent. If a bare name that was
+unique becomes ambiguous, the workspace qualifies it. Qualify the existing
+selection before installing a second marketplace that offers the same
+name.
 
 #### Version axes
 
@@ -1124,7 +1478,7 @@ Two version numbers are involved, and each has one job.
 
 | Axis | Declared in | Compared by | Job |
 |---|---|---|---|
-| Plugin version range | The entry's `dependencies[].version` | Claude Code | Installation, and a guard against a MAJOR break in the concept plugin. It does not promise a contract version. A workspace-authored realization has no plugin version. |
+| Plugin version range | The entry's `dependencies[].version` | Claude Code | Installation, and a guard against a MAJOR break in the concept plugin. It does not promise a contract version. A workspace-authored realization has no plugin version. An `extends` range is compared with the plugin version of the realization it extends. |
 | `contractVersion` | Tier 2 `schema.json`; a range in each realization's `realizes` block | The activation check | Compatibility between a realization and the contract. It works the same for all three sources of realizations. |
 
 Rules for `contractVersion`:
@@ -1140,6 +1494,10 @@ Rules for `contractVersion`:
    the plugin's own MAJOR, so the plugin range protects dependents as well.
    This is guidance for the defining marketplace's author, not something
    a tool checks.
+5. An `extends.version` range is over the base's plugin version. It uses a
+   narrower grammar than `contractVersion` ranges (§2). The base's own
+   `contractVersion` range is compared with the installed Tier 2 version.
+   The two numbers are never compared with each other's range.
 
 ### 11. Resilience: when a realization breaks
 
@@ -1166,10 +1524,14 @@ says so.
 | Path | Where | Needs |
 |---|---|---|
 | Change config | `marketplace-plugin-settings.yml`, `<concept>.config` | The realization honours the endpoint and version properties |
-| Author its own realization against the unchanged contract | `.claude/skills/realize-<name>/` (§2), then select it | The published Tier 2 only |
+| Author its own realization against the unchanged contract | `.claude/skills/realize-<name>/` or `realize-<concept>-<name>/` (§2), then select it | The published Tier 2 only |
+| Keep an installed realization and change only what differs | A workspace realization that `extends` it, then select it (§2) | The base is installed and loaded, with a `MAJOR.MINOR.PATCH` plugin version that stays in the declared range |
 | Register a realization marketplace that ships a fix | `extraKnownMarketplaces`, enable, select (§3) | Such a marketplace exists |
 | Pick another realization of the same concept | Select a different candidate (§3) | Another one is enabled |
 | Take the patch from the marketplace that ships the realization | Update the plugin | A released fix inside its dependents' ranges |
+
+If an update takes the base outside an `extends` range, the activation
+check halts (§6).
 
 If two installed plugins constrain a shared dependency to ranges that do
 not overlap, Claude Code fails the later install and auto-update leaves

@@ -1,6 +1,6 @@
 {
   "name": "guidance-activation-check",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Shared pre-flight check that concept-plugin realizations invoke before doing real work, validating marketplace-plugin-settings.yml against the active realization's published config schema.",
   "author": {
     "name": "DeepElement",

@@ -161,6 +161,8 @@ concept; its realizations stay with the concept plugin that defines it. A
 [architecture.md §10](../../../../docs/architecture.md#the-realizes-declaration)
 (a concept plugin's own realizations need not carry one, so a missing
 block is not an AD3 finding), and its `concept` is `<concept>@<marketplace>`.
+AD3 reads only `concept`. Keys such as `realization` and `extends` are not
+an AD3 matter; `validate-concept-plugin` set E6 reports them.
 A marketplace that mixes concept plugins with realization-only plugins is
 classified as published (see `validate-concept-plugin`, "How to classify a
 marketplace and detect a Concept plugin"), and AD3 reports that mix once,

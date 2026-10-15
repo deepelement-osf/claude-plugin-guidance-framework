@@ -19,7 +19,7 @@ a published marketplace and a consuming workspace.
 | **guidance marketplace** | `claude-plugin-guidance` itself (`DeepElement/claude-plugin-guidance-framework`): authoring tooling for marketplace authors (`guidance-conventions`, `guidance-activation-check`). It ships no concept plugins. |
 | **published marketplace** | A marketplace authored with the guidance marketplace that publishes concept plugins (§1). Each concept plugin makes its marketplace that concept's **defining marketplace**. |
 | **realization marketplace** | A marketplace that offers realizations for concepts owned by an existing published marketplace (§10). |
-| **consuming workspace** | The workspace (repo, project, or control plane) that registers and uses marketplaces, selects and configures realizations in `marketplace-plugin-settings.yml` (§3), and may author realizations of its own (§2). |
+| **consuming workspace** | The workspace (a repository or project) that registers and uses marketplaces, selects and configures realizations in `marketplace-plugin-settings.yml` (§3), and may author realizations of its own (§2). |
 
 Bare "workspace" in these docs means a consuming workspace. "Tier" is
 reserved for Tier 1/2/3, the three parts inside one concept plugin (§1);

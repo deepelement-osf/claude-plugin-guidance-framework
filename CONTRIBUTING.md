@@ -123,8 +123,8 @@ this section covers only what this repo does with it.
 ### Releasing
 
 Tags are per plugin, named `<plugin>--v<version>` (for example
-`guidance-activation-check--v1.0.0`). The `workspace-v*` tags in this
-repo are created by the control plane and are unrelated to plugin tags.
+`guidance-activation-check--v1.0.0`). A tag of any other shape is not a
+plugin release tag, and this policy ignores it.
 
 After the pull request merges, the guidance maintainer tags the merge commit
 from a clean working tree:

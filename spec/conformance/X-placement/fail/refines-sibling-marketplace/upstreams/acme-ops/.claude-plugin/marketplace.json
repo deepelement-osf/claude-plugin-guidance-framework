@@ -1,0 +1,15 @@
+{
+  "name": "acme-ops",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Operations phases for the conformance fixtures.",
+  "plugins": [
+    {
+      "name": "acme-deploy",
+      "source": "./plugins/acme-deploy",
+      "description": "The deploy phase: publishes built output to its environment."
+    }
+  ]
+}

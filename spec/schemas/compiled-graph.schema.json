@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Compiled graph (concept-graph.json at a marketplace repository root)",
+  "description": "The file written by the compliance script with --compile, and nothing else. It is the marketplace's graph composed with the graphs of its direct upstreams, as authored against the recorded versions. Nodes are sorted by id, capabilities by id, realizations by name, and upstreams by marketplace. The file has no timestamps, so the same inputs always write the same bytes. graphHash is the sha256 of the canonical JSON of the whole object without graphHash, and each upstream records the graphHash of its own compiled graph. This schema checks the shape of the file. The compliance script checks that the file is current, that the hashes match, that the versions satisfy their ranges, and that the file equals a fresh compile. The nodes are split by role, and the oneOf in nodes picks the branch for each one. The capability items have no role and no interaction. The contract key holds the graph contract without graphSpecVersion. The script checks the role-dependent rules that the shape cannot hold, such as the order of refinements and the depth limit.",
+  "type": "object",
+  "properties": {
+    "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+    "marketplace": { "$ref": "#/$defs/name" },
+    "upstreams": {
+      "type": "array",
+      "description": "Each direct upstream marketplace, sorted by marketplace. Empty when the marketplace has no upstreams.",
+      "items": { "$ref": "#/$defs/upstream" }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/phaseNode" },
+          { "$ref": "#/$defs/entryNode" },
+          { "$ref": "#/$defs/refinementNode" },
+          { "$ref": "#/$defs/observerNode" }
+        ]
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capabilityNode" }
+    },
+    "graphHash": { "$ref": "#/$defs/sha256" }
+  },
+  "required": ["graphSpecVersion", "marketplace", "upstreams", "nodes", "capabilities", "graphHash"],
+  "additionalProperties": false,
+  "$defs": {
+    "graphSpecVersion": {
+      "const": "1.0"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "qualifiedRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "nodeRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(@[a-z0-9]+(-[a-z0-9]+)*)?$"
+    },
+    "outcome": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$",
+      "description": "A semantic version."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "interaction": {
+      "enum": ["autonomous", "pause", "conversational"]
+    },
+    "edge": {
+      "type": "object",
+      "properties": {
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "to": { "$ref": "#/$defs/qualifiedRef" }
+      },
+      "required": ["outcome", "to"],
+      "additionalProperties": false
+    },
+    "edges": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "uses": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/qualifiedRef" }
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/name" }
+    },
+    "after": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/qualifiedRef" }
+    },
+    "optional": {
+      "type": "boolean"
+    },
+    "when": {
+      "type": "object",
+      "description": "Call parameter keys are open by design, so additionalProperties is a value schema here instead of false. The keys node, path_exists and setting are reserved.",
+      "properties": {
+        "node": { "$ref": "#/$defs/nodeRef" },
+        "path_exists": { "type": "string" },
+        "setting": { "type": "string" }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "observes": {
+      "oneOf": [
+        { "type": "string", "const": "all" },
+        { "$ref": "#/$defs/qualifiedRef" },
+        {
+          "type": "object",
+          "properties": {
+            "role": { "enum": ["phase", "entry", "refinement"] }
+          },
+          "required": ["role"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "on": {
+      "oneOf": [
+        { "type": "string", "const": "concluded" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/outcome" }
+        }
+      ]
+    },
+    "deprecated": {
+      "type": "string"
+    },
+    "replaced_by": { "$ref": "#/$defs/qualifiedRef" },
+    "jsonSchemaDocument": {
+      "type": "object",
+      "description": "A JSON Schema document in the guidance subset. Only its top level is typed here."
+    },
+    "contract": {
+      "description": "The graph contract of the concept, without graphSpecVersion. It has the same rules as skills/realization-contract/graph-contract.json.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selection": { "const": "one" },
+            "outcomes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/outcome" } },
+            "frame": { "$ref": "#/$defs/jsonSchemaDocument" },
+            "input": { "$ref": "#/$defs/jsonSchemaDocument" },
+            "result": { "$ref": "#/$defs/jsonSchemaDocument" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "selection": { "const": "many" },
+            "fold": { "enum": ["all", "collect", "worst-outcome"] },
+            "outcomes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/outcome" } },
+            "frame": { "$ref": "#/$defs/jsonSchemaDocument" },
+            "input": { "$ref": "#/$defs/jsonSchemaDocument" },
+            "result": { "$ref": "#/$defs/jsonSchemaDocument" }
+          },
+          "required": ["selection", "fold"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "realizes": {
+      "description": "null for a realization of a concept this marketplace defines. The realizes block otherwise.",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/realizesBlock" }
+      ]
+    },
+    "realizesBlock": {
+      "type": "object",
+      "properties": {
+        "concept": { "$ref": "#/$defs/qualifiedRef" },
+        "name": { "$ref": "#/$defs/name" },
+        "contractVersion": {
+          "type": "string",
+          "pattern": "^[~^<>=|0-9.xX* -]+$"
+        }
+      },
+      "required": ["concept", "name", "contractVersion"],
+      "additionalProperties": false
+    },
+    "realization": {
+      "type": "object",
+      "description": "One realization of a concept or capability, as the compiled graph records it.",
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "runs": { "enum": ["agent", "command"] },
+        "builds_on": {
+          "description": "The name of the realization this one layers on, or null.",
+          "oneOf": [
+            { "$ref": "#/$defs/name" },
+            { "type": "null" }
+          ]
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "enum": ["push", "pull-request", "deployment", "external-message"]
+          }
+        },
+        "default": { "type": "boolean" },
+        "realizes": { "$ref": "#/$defs/realizes" }
+      },
+      "required": ["name", "runs", "builds_on", "effects", "default", "realizes"],
+      "additionalProperties": false
+    },
+    "upstream": {
+      "type": "object",
+      "properties": {
+        "marketplace": { "$ref": "#/$defs/name" },
+        "plugins": {
+          "type": "object",
+          "description": "Plugin name to the version the upstream was authored against. The keys are plugin names, so additionalProperties is a value schema here instead of false.",
+          "additionalProperties": { "$ref": "#/$defs/version" }
+        },
+        "graphHash": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["marketplace", "plugins", "graphHash"],
+      "additionalProperties": false
+    },
+    "phaseNode": {
+      "type": "object",
+      "description": "A phase node. It may declare edges.",
+      "properties": {
+        "id": { "$ref": "#/$defs/qualifiedRef" },
+        "plugin": { "$ref": "#/$defs/name" },
+        "version": { "$ref": "#/$defs/version" },
+        "role": { "const": "phase" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "edges": { "$ref": "#/$defs/edges" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": { "$ref": "#/$defs/deprecated" },
+        "replaced_by": { "$ref": "#/$defs/replaced_by" },
+        "aliases": { "$ref": "#/$defs/aliases" },
+        "contract": { "$ref": "#/$defs/contract" },
+        "realizations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/realization" }
+        }
+      },
+      "required": ["id", "plugin", "version", "role", "interaction", "contract", "realizations"],
+      "additionalProperties": false
+    },
+    "entryNode": {
+      "type": "object",
+      "description": "An entry node. It may declare edges, and its last node may declare handoff.",
+      "properties": {
+        "id": { "$ref": "#/$defs/qualifiedRef" },
+        "plugin": { "$ref": "#/$defs/name" },
+        "version": { "$ref": "#/$defs/version" },
+        "role": { "const": "entry" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "edges": { "$ref": "#/$defs/edges" },
+        "handoff": { "$ref": "#/$defs/qualifiedRef" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": { "$ref": "#/$defs/deprecated" },
+        "replaced_by": { "$ref": "#/$defs/replaced_by" },
+        "aliases": { "$ref": "#/$defs/aliases" },
+        "contract": { "$ref": "#/$defs/contract" },
+        "realizations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/realization" }
+        }
+      },
+      "required": ["id", "plugin", "version", "role", "interaction", "contract", "realizations"],
+      "additionalProperties": false
+    },
+    "refinementNode": {
+      "type": "object",
+      "description": "A refinement node. It has exactly one refines target.",
+      "properties": {
+        "id": { "$ref": "#/$defs/qualifiedRef" },
+        "plugin": { "$ref": "#/$defs/name" },
+        "version": { "$ref": "#/$defs/version" },
+        "role": { "const": "refinement" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "refines": { "$ref": "#/$defs/qualifiedRef" },
+        "after": { "$ref": "#/$defs/after" },
+        "optional": { "$ref": "#/$defs/optional" },
+        "when": { "$ref": "#/$defs/when" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": { "$ref": "#/$defs/deprecated" },
+        "replaced_by": { "$ref": "#/$defs/replaced_by" },
+        "aliases": { "$ref": "#/$defs/aliases" },
+        "contract": { "$ref": "#/$defs/contract" },
+        "realizations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/realization" }
+        }
+      },
+      "required": ["id", "plugin", "version", "role", "interaction", "refines", "contract", "realizations"],
+      "additionalProperties": false
+    },
+    "observerNode": {
+      "type": "object",
+      "description": "An observer node. It never changes the outcome of the node it observes.",
+      "properties": {
+        "id": { "$ref": "#/$defs/qualifiedRef" },
+        "plugin": { "$ref": "#/$defs/name" },
+        "version": { "$ref": "#/$defs/version" },
+        "role": { "const": "observer" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "observes": { "$ref": "#/$defs/observes" },
+        "on": { "$ref": "#/$defs/on" },
+        "after": { "$ref": "#/$defs/after" },
+        "optional": { "$ref": "#/$defs/optional" },
+        "when": { "$ref": "#/$defs/when" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": { "$ref": "#/$defs/deprecated" },
+        "replaced_by": { "$ref": "#/$defs/replaced_by" },
+        "aliases": { "$ref": "#/$defs/aliases" },
+        "contract": { "$ref": "#/$defs/contract" },
+        "realizations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/realization" }
+        }
+      },
+      "required": ["id", "plugin", "version", "role", "interaction", "observes", "on", "contract", "realizations"],
+      "additionalProperties": false
+    },
+    "capabilityNode": {
+      "type": "object",
+      "description": "A capability in the compiled graph. It has no role, interaction or edges. Its contract is optional, because a capability may be concept-only.",
+      "properties": {
+        "id": { "$ref": "#/$defs/qualifiedRef" },
+        "plugin": { "$ref": "#/$defs/name" },
+        "version": { "$ref": "#/$defs/version" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": { "$ref": "#/$defs/deprecated" },
+        "replaced_by": { "$ref": "#/$defs/replaced_by" },
+        "aliases": { "$ref": "#/$defs/aliases" },
+        "contract": { "$ref": "#/$defs/contract" },
+        "realizations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/realization" }
+        }
+      },
+      "required": ["id", "plugin", "version", "realizations"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Realization declaration (the graph: frontmatter of a realize-* skill)",
+  "description": "The value of the graph: key in the YAML frontmatter of a skills/realize-*/SKILL.md file, as parsed to JSON. runs selects how the realization is run. command is required if and only if runs is command, and the oneOf below enforces that. The command path is relative to the realization's own skill directory. builds_on names another realization of the same concept, and the compliance script checks that it exists and is visible. effects lists the effects outside the repository that the realization has, and it defaults to an empty list. The schema cannot check whether a command file exists, whether builds_on resolves, or whether the effects match what the skill does. The compliance script checks those.",
+  "oneOf": [
+    { "$ref": "#/$defs/agentRealization" },
+    { "$ref": "#/$defs/commandRealization" }
+  ],
+  "$defs": {
+    "graphSpecVersion": {
+      "const": "1.0"
+    },
+    "effects": {
+      "type": "array",
+      "description": "Effects outside the repository. Default is an empty list. Rewind cannot undo these.",
+      "items": {
+        "enum": ["push", "pull-request", "deployment", "external-message"]
+      }
+    },
+    "builds_on": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Optional. The name of another realization of the same concept, which the layer loads first."
+    },
+    "agentRealization": {
+      "type": "object",
+      "description": "runs agent. The realization is run by a session. No command key is allowed.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "runs": { "const": "agent" },
+        "builds_on": { "$ref": "#/$defs/builds_on" },
+        "effects": { "$ref": "#/$defs/effects" }
+      },
+      "required": ["graphSpecVersion", "runs"],
+      "additionalProperties": false
+    },
+    "commandRealization": {
+      "type": "object",
+      "description": "runs command. The realization runs the command at the given path, and that command is required.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "runs": { "const": "command" },
+        "command": {
+          "type": "string",
+          "pattern": "^[^/].*$",
+          "description": "A path relative to the realization's skill directory. It must not start with a slash."
+        },
+        "builds_on": { "$ref": "#/$defs/builds_on" },
+        "effects": { "$ref": "#/$defs/effects" }
+      },
+      "required": ["graphSpecVersion", "runs", "command"],
+      "additionalProperties": false
+    }
+  }
+}

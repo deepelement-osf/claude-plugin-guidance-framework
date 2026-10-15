@@ -1,0 +1,8 @@
+{
+  "graphSpecVersion": "1.0",
+  "selection": "one",
+  "outcomes": [
+    "passed",
+    "failed"
+  ]
+}

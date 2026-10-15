@@ -25,6 +25,12 @@ Bare "workspace" in these docs means a consuming workspace. "Tier" is
 reserved for Tier 1/2/3, the three parts inside one concept plugin (§1);
 it never names a role or a relationship between roles.
 
+Graph terms name what a concept does in a run, not a role of a repository.
+A **node** is a concept with a graph role: a phase, an entry, a refinement
+or an observer. A **capability** has no graph role, is never a node, and is
+used by name. A **refinement** adds obligations to the one concept it names.
+An **observer** runs after nodes and cannot change them. §12 defines them.
+
 A published marketplace can also build on another one; §9 covers how
 those chains are declared and what they may and may not do. §10 covers
 realization marketplaces, which offer realizations for a concept someone
@@ -226,7 +232,20 @@ Each concept plugin contains, as skills within that single plugin:
     installed, before doing any real work; otherwise it runs its own inline
     config check (§7, Tier 3)
 
-### 2. Realizations may come from three sources
+#### Graph fields
+
+A concept may declare its place in a concept graph (§12) in its Tier 1
+frontmatter, under one `graph:` key:
+
+- its graph role, and the concept it refines or observes;
+- `uses:`, the capabilities it references by name (§5);
+- the lifecycle fields, `deprecated`, `replaced_by` and `aliases` (§12).
+
+Its Tier 2 adds the graph contract, and each Tier 3 realization declares how
+it runs (§7). Declared references are always qualified,
+`<concept>@<marketplace>`.
+
+### 2. Realizations may come from four sources
 
 A concept's usable realizations are the union of:
 
@@ -242,8 +261,11 @@ A concept's usable realizations are the union of:
 - **Realizations offered by a realization marketplace** (§10) — Tier 3
   skills in plugins that depend on a concept another published
   marketplace defines.
+- **Realizations offered by a downstream published marketplace** (§9) —
+  non-default realizations and layers of an ancestor's concept. They carry a
+  `realizes` block and are never the default.
 
-All three are referenced from `marketplace-plugin-settings.yml` by a
+All four are referenced from `marketplace-plugin-settings.yml` by a
 realization name (§3 covers the qualified form) — the settings file
 doesn't care where a realization physically lives.
 
@@ -271,6 +293,24 @@ about where a workspace keeps its skills.
 
 A workspace-authored realization with the same name as an installed one
 wins; see "Defaults and collisions" in §10.
+
+#### Workspace concepts, layers and names
+
+- A consuming workspace may keep concepts and refinements of its own in
+  `.claude/skills/`, beside its realizations. Their rules are in §12.
+- A workspace concept is skills, not a plugin:
+  - `.claude/skills/<concept>-concept/` holds its Tier 1 concept;
+  - `.claude/skills/<concept>-realization-contract/` holds its Tier 2 contract;
+  - each of its realizations is `.claude/skills/realize-<name>/`, with a
+    `realizes` block whose `concept` is `<concept>@workspace`.
+- `workspace` is a reserved qualifier, so a workspace name never clashes with
+  a marketplace's.
+- A realization's name comes from its `realizes` block, not from its
+  directory. The directory is `realize-<name>`. When two workspace
+  realizations share a name for different concepts, the directory of each is
+  `realize-<concept>-<name>`.
+- A workspace realization may build on another realization of the same
+  concept with `builds_on` (§12).
 
 ### 3. Workspace configuration: `marketplace-plugin-settings.yml`
 
@@ -346,6 +386,49 @@ guidance defines for a workspace's use of a concept; anything else a
 workspace overrides or defines locally is outside what guidance validates
 (§10).
 
+#### Switches, several realizations and scopes
+
+Each form extends one concept's entry in the binding file, keyed by the
+concept name.
+
+- **Switch off an optional refinement.** Under the refinement's own concept
+  key, set `enabled: false`. Only an optional refinement can be switched off.
+  A required refinement goes away only when its plugin is disabled (§12).
+
+  ```yaml
+  type-check:
+    enabled: false
+  ```
+
+- **Several realizations at once.** A contract with `selection: many` takes a
+  list. For a refinement, each listed realization runs as its own step. For a
+  capability, all of them load (§12).
+
+  ```yaml
+  notify:
+    realization: [email-notify, sms-notify]
+  ```
+
+- **Scoped selection.** A concept's entry has a base selection and optional
+  scoped selections. The first scope whose `when:` holds wins. Otherwise the
+  base applies. Scopes key on run facts only (§12).
+
+  ```yaml
+  secrets:
+    realization: sops-age
+    config: {profile: dev}
+    scoped:
+      - when: {environment: production}
+        realization: vault
+        config: {profile: prod}
+      - when: {node: deliver}
+        realization: sops-age-ci
+        config: {profile: ci}
+  ```
+
+The workspace runtime checks each listed realization, and the scope that
+applies, before every step (§6).
+
 ### 4. A concept may be published with no realization at all
 
 A concept plugin is not required to ship a realization to be a valid,
@@ -363,8 +446,13 @@ both valid:
   published so other plugins, or workspaces, have a stable name to
   reference and build against.
 
-A concept-only plugin needs only its Tier 1 `skills/concept/SKILL.md`.
-**Tier 2 (the realization contract) is not required until a first
+**Only a capability may be concept-only.** A concept with a graph role (§12)
+always publishes Tier 2, the realization contract, because its frame, input
+or result contract is declared there. It may still ship no realization.
+
+A concept-only plugin, which is always a capability, needs only its Tier 1
+`skills/concept/SKILL.md`.
+**For a capability, Tier 2 (the realization contract) is not required until a first
 realization is being added** — writing a contract with nothing yet
 implementing it is premature; the contract exists to describe what a
 realization must satisfy, so it earns its place at the same time as
@@ -433,6 +521,11 @@ description of how it's currently resolved.
   declares dependencies on (§9).
 - A realization's `realizes` block (§10) is a declaration and is always
   qualified; this table is about references in instruction text.
+- A reference by name to a capability is also declared with `uses:` in the
+  concept's frontmatter (§12). The prose and the declaration name the same
+  concept.
+- A declared reference is always qualified, for example
+  `uses: [secrets@acme-core]`.
 
 For example, a `deploy` concept's Tier 1 or a realization's SKILL.md
 should say:
@@ -488,6 +581,10 @@ SKILL.md is expected to call it, if installed, as its first step) rather
 than a Claude Code hook, so it works the same way regardless of how a given
 realization is triggered, and doesn't depend on hook mechanics that may
 change independently of this pattern.
+
+A selection may be scoped, or list several realizations (§3). The check
+resolves the scope that applies, and it checks every realization a multiple
+selection lists.
 
 #### Where the check runs
 
@@ -549,7 +646,9 @@ realization runs should select it.
 - It does not authenticate its caller; a skill can pass it any
   realization name. It shows consistency, not authenticity.
 - It does not gate a skill that merely references a concept (§5). Only a
-  realization's own first instruction calls it.
+  realization's own first instruction calls it, in a marketplace repository.
+  In a consuming workspace, the workspace runtime calls it before every step
+  instead (above).
 - It cannot always find a workspace's realizations from a linked git
   worktree that has no `.claude/skills` of its own, because Claude Code
   then loads the main checkout's skills. It compares directories after
@@ -626,6 +725,14 @@ these conventions.
   check can detect incompatibility instead of failing confusingly. What
   counts as breaking, and how this number relates to the plugin's own
   version, is in §10 ("Version axes").
+- For a concept with a graph role, add `skills/realization-contract/graph-contract.json`
+  beside `schema.json`. It holds `graphSpecVersion`; `selection` (`one`, the
+  default, or `many`); `fold` (required with `many`: `all`, `collect` or
+  `worst-outcome`); `outcomes` (what the conclude step of a phase, entry or
+  refinement can produce); and the JSON Schemas `frame` (when the concept
+  accepts refinements), `input` (when it accepts hand-offs) and `result`
+  (refinements and observers). A phase or entry must use `selection: one`.
+  `contractVersion` stays only in `schema.json`, its one source (§12).
 - Write at least one realistic example `config` block satisfying the
   base schema, even though Tier 2 has no concrete provider — this is
   what a workspace-authored realization's author copies as a starting
@@ -677,6 +784,16 @@ these conventions.
 - If a realization is the concept's pinned default (§4), say so
   explicitly in its SKILL.md (not only in the concept skill), so anyone
   reading the realization file directly still knows its status.
+
+- Each realization's `SKILL.md` frontmatter declares a `graph:` key (§12):
+  - `graphSpecVersion: "1.0"`;
+  - `runs: agent` or `runs: command`. `command:` is required only when `runs`
+    is `command`, and it is a path relative to the skill directory;
+  - `builds_on:`, optionally, the name of another realization of the same
+    concept (a layer, §12);
+  - `effects:`, optionally, the effects outside the repository: `push`,
+    `pull-request`, `deployment` or `external-message`. The default is `[]`.
+- The `realizes` block gains a required `name` line (§10).
 
 #### The `schema.json` convention (Tier 2 and Tier 3)
 
@@ -767,15 +884,18 @@ list with registration sources.
 
 Chains are additive only. B may add new concept plugins with new, unique
 concept names, may have its skills reference A's concepts by name (§5),
-and may carry realizations of its own concepts. B may not override,
-extend or realize a concept defined in A, and may not reuse an A plugin
-name, concept name or prefix. What tells B's plugins apart from A's is
-B's own prefix: `acme-secrets` in A, `beacon-key-rotation` in B.
+and may carry realizations of its own concepts. B may also define a concept
+that refines or observes a concept of A, and may add entry chains that hand
+off into A's phases (§12). B may ship non-default realizations and layers of
+A's concepts, under §10's rules. None of these changes A's concept: nothing
+of A's changes, and nothing runs until a workspace selects it. B may never
+replace, redirect or edit a concept defined in A, mark A's default, or reuse
+an A plugin name, concept name or prefix. What tells B's plugins apart from
+A's is B's own prefix: `acme-secrets` in A, `beacon-key-rotation` in B.
 
-Providing realizations for a concept that another published marketplace
-defines is a separate project type, the realization marketplace. A
-published marketplace has no way to do it, and this section does not
-cover it.
+A published marketplace may provide realizations only for concepts of its
+ancestors, and only as non-default realizations (§10). For any other concept,
+the project type is the realization marketplace (§10).
 
 #### Authoring recipe: published marketplace B with upstream A
 
@@ -919,7 +1039,7 @@ To migrate, fix what the finding names:
 | U4: no `## Required marketplaces` section, or no row for an allowlisted marketplace | Add the section from the template above. |
 | AD1: two plugins define one concept name | Rename one under the marketplace's own prefix. |
 | AD2: a plugin name, concept name or prefix equals an upstream's | Rename with the marketplace's own prefix. |
-| AD3: a plugin with realizations and no concept of its own, or a `realizes` block naming another marketplace's concept | Move the realizations to a realization marketplace (§10). |
+| AD3: a realization of an ancestor's concept is marked as the default | Remove the default marker. Only the defining marketplace marks a default. A non-default realization of an ancestor's concept is allowed. |
 
 Renaming a published plugin is a breaking change for the consuming
 workspaces that use it (see Consequences).
@@ -927,9 +1047,9 @@ workspaces that use it (see Consequences).
 ### 10. Realization marketplaces
 
 A realization marketplace offers realizations (Tier 3 only) for concepts
-owned by an existing published marketplace. §9 explains why a published
-marketplace cannot do this for a concept it does not define; this section
-covers the project type that can.
+owned by an existing published marketplace. A published marketplace may
+realize only its ancestors' concepts (§9). This section covers the project
+type for every other concept.
 
 #### Definition and purpose
 
@@ -940,21 +1060,23 @@ covers the project type that can.
 - It never overrides or extends a concept, and never edits Tier 1 or
   Tier 2. Those stay with the defining marketplace.
 - Its realizations are never the default (see "Defaults and collisions").
-- A concept-only plugin (§4) cannot be targeted, because there is no Tier 2
+- A concept-only plugin (§4, which is always a capability) cannot be targeted, because there is no Tier 2
   contract to satisfy; the author asks the defining marketplace to publish
   one first. A plugin with a contract and no realizations can be targeted.
   It has no default, so a workspace must select a realization for it.
 - A realization plugin targets one concept. A plugin may ship several
   realizations of it.
+- It may ship layered realizations (`builds_on:`, §12). A layer is never the
+  default.
 
 #### Who provides realizations
 
 | Source of realizations | May provide | Never |
 |---|---|---|
 | The concept's defining marketplace | The default (exactly one, in the concept plugin; see §4) and any other realizations | n/a |
-| A realization marketplace | Non-default realizations targeting the published contract | Override or extend a concept; edit Tier 1 or Tier 2; ship the default |
-| The consuming workspace | Its own realizations of a published contract (§2) | n/a |
-| Another published marketplace | Nothing for a concept it does not define | Any realization of that concept (§9) |
+| A realization marketplace | Non-default realizations and layers targeting the published contract | Override or extend a concept; edit Tier 1 or Tier 2; ship or mark the default |
+| The consuming workspace | Realizations and layers of any concept in the stack, and of its own concepts (§2, §12) | n/a |
+| Another published marketplace, downstream (§9) | Non-default realizations and layers of an ancestor's concept, with a `realizes` block | Replace, redirect or edit an ancestor's concept; mark its default; realize a concept that no ancestor defines |
 
 Guidance does not police what a consuming workspace overrides locally:
 it may reuse the name of a plugin or skill it has installed, or define
@@ -1001,6 +1123,7 @@ Each realization's `SKILL.md` carries a fenced block, in the same
 ~~~markdown
 ```realizes
 concept: secrets@acme-concepts
+name: aws-secrets-manager
 contractVersion: "^1.1.0"
 ```
 ~~~
@@ -1009,6 +1132,10 @@ contractVersion: "^1.1.0"
   in §1, and the qualifier is the defining marketplace's own `name`.
   The block is a declaration, not a cross-concept reference in instruction
   text, so the bare-name style of §5 does not apply to it.
+- `name` is the realization's name within its concept. The concept and the
+  name together identify the realization. A concept plugin's own
+  realizations need no block; their name is the directory name minus
+  `realize-`.
 - `contractVersion` is a semantic-version range, written as in a
   dependency's `version` field (see
   [declaring a version constraint](https://code.claude.com/docs/en/plugins/dependencies#declare-a-dependency-with-a-version-constraint)),
@@ -1191,6 +1318,400 @@ with it. A workspace that cannot wait defines a new, uniquely named
 concept and its own realization, in whatever way it likes; guidance has no
 convention for it, and it serves only new callers, since existing skills
 keep referencing the old concept.
+
+### 12. Concept graphs
+
+**Experimental.** This section and the graph fields it defines may still
+change. It stays experimental until at least two marketplaces other than the
+one that defines the root graph use it, and one guidance release has passed
+with no MAJOR schema change.
+
+A concept graph is the set of steps a run performs in a consuming workspace,
+the order they run in, and what each may do. Each marketplace declares its
+part in its own concepts. The declaration format, the JSON Schemas and the
+checks are in [`spec/`](../spec/README.md). This section states the rules.
+
+#### Graph roles
+
+- Each concept declares one graph role, or none. A concept with no role is a
+  **capability**.
+- **phase:** a node with edges. Its outcome picks the next node.
+- **entry:** a phase that starts a chain. The chain may run the marketplace's
+  own phases and end in one hand-off into an upstream phase.
+- **refinement:** `refines: <concept>` names the one concept it adds to. The
+  target is a phase, entry, refinement or capability, in its own marketplace
+  or an ancestor. A refinement has one parent. Shared behavior belongs in a
+  capability that refinements use by name.
+- **observer:** `observes:` names what it watches: a phase or entry, `all`, or
+  a role filter.
+- **capability:** not a node. It never runs on its own. Phases, refinements
+  and observers use it by name and declare it with `uses:`.
+- A **node** is any concept with a graph role. Capabilities are never nodes.
+- There is no role for a phase placed between two upstream phases. It would
+  redirect an upstream edge.
+
+#### Frame, support and conclude
+
+Each node runs three steps, in this fixed order:
+
+1. **Frame.** The node's selected realization states what the phase is doing.
+   A concept that accepts refinements declares the shape of its frame.
+2. **Support.** Each refinement runs in order. It receives the frame, the
+   phase input and the results of earlier refinements. A refinement's own
+   realization may frame, support and conclude over its own refinements.
+3. **Conclude.** The node's realization receives everything and produces the
+   deliverable and the outcome. The outcome picks the outgoing edge.
+
+Observers of the node run after conclude. They cannot change anything above.
+
+- The workspace runtime schedules every step, so a model never chooses the
+  order. A required refinement always runs.
+- Each frame, refinement and conclude step is its own agent session, or a
+  command (see runs and declared effects).
+- A refinement with no selected realization uses its concept and contract
+  skills as the session's instructions.
+- A refinement returns its declared result shape, not free text, so the
+  parent's context stays bounded. The parent sees results by shape, never by
+  who supplied them.
+- A refinement's result may be absent, because its `when:` was false. A
+  parent's conclude step must accept that.
+- A refinement adds obligations and returns its result. It never tightens,
+  loosens or replaces what it extends.
+
+#### Recursion and order
+
+- A refinement may itself be refined. Its own refinements run the same frame,
+  support and conclude steps.
+- A refinement chain more than four levels deep warns.
+- A concept's refinements run in this order: upstream depth first, then
+  marketplace name, then concept name. Workspace refinements run last.
+- `after:` on a refinement or observer names one it can see. A cycle in
+  `after:` is an error.
+- When two refinements cannot see each other and need another order, the
+  workspace pins that order in its own graph.
+
+#### Entries and hand-offs
+
+- An entry chain is its own sequence of phases. Its last phase may hand off
+  once, with `handoff:`, into the start of an upstream phase.
+- The receiving phase must declare an input contract that covers everything
+  it reads from the run's state, not only one payload. A hand-off's output
+  validates against that contract.
+- A phase with no input contract accepts no hand-offs.
+- A chain with no hand-off runs as its own workflow.
+- A call names the entry it starts from.
+
+#### Observers
+
+- An observer runs after the node it observes concludes, and before the edge
+  is followed. `on:` names the outcomes it runs on: `concluded`, or a list
+  such as `[passed, failed]`. It follows the same order, `optional` and
+  `when:` rules as a refinement.
+- It receives the deliverable, the outcome and the results. It cannot change
+  them. Its result is only recorded.
+- A failed observer is reported. It never blocks or redirects. A step that
+  must be able to block is a gate refinement.
+- `observes: all` runs the observer after every phase, entry and refinement
+  step in its scope. `observes: {role: phase}` (or `entry`, or `refinement`)
+  limits it to one role. Any other role in the filter is refused.
+- **Scope.** In a marketplace, the scope is the nodes it could name: its own
+  and its ancestors'. It never sees a downstream marketplace's nodes. In a
+  workspace, the scope is the whole composed graph.
+- **Order.** At each node, observers that name that node run first. Wildcard
+  observers run after them, then by the usual order rules.
+- **Inputs.** A wildcard observer receives the same inputs as any observer,
+  plus the node's id and role. Its `when:` may filter further.
+- **Cost.** A wildcard observer runs at every node. The checks and the
+  workspace runtime warn when its selected realization is an agent session
+  rather than a command.
+- An observer never observes another observer.
+
+#### Run facts and when
+
+- `when:` on a refinement or observer lists keys that must all hold. The keys
+  `node`, `path_exists` and `setting` are reserved. Any other key is a call
+  parameter, such as `environment`.
+- Run facts are the call's declared parameters, the node being run, values in
+  the workspace's settings file, and whether a path exists in the repository
+  at the run's current checkpoint.
+- The workspace runtime evaluates them before it schedules a step, and it
+  records each value. The same facts always give the same steps.
+- When `when:` is false, the step is skipped and recorded as "did not apply".
+  A required refinement still runs whenever its condition holds.
+- The author sets `when:`. A workspace cannot change it, and can only switch
+  off an optional step (§3).
+- Run facts never include model judgement. A route chosen by a model-judged
+  outcome is not deterministic, so a gate is a command realization.
+
+#### Capability refinements
+
+- A capability is not a node, so its refinements add instructions, not runs.
+- A concept declares the capabilities it uses with `uses:`. Its prose
+  reference by name is unchanged (§5).
+- When a step runs a concept that uses a capability, the workspace runtime
+  loads into that session:
+  - the capability's skill and its selected realization;
+  - every active refinement of it, in the order above, with their selected
+    realizations.
+- Example: `signing-rules@acme-web` refines `secrets@acme-core` and adds
+  signing obligations. Every session that uses `secrets` in a workspace that
+  installs `acme-web` loads them.
+
+#### Several realizations at once
+
+- A contract declares `selection: many` and a `fold`: `all`, `collect` or
+  `worst-outcome`. The default is `selection: one`.
+- The workspace lists several realizations (§3).
+- For a refinement, each selected realization runs as its own step, in listed
+  order, and the results fold.
+- For a capability, every selected realization loads into the session.
+- A phase or entry stays `selection: one`, because frame and conclude need one
+  owner.
+- `worst-outcome` takes the worst outcome, as a gate does. The spec states what
+  `all` and `collect` return.
+
+#### Scoped selection
+
+- A concept's settings entry has a base selection and, optionally, scoped
+  selections. The first scope whose `when:` holds wins. Otherwise the base
+  applies. The form is in §3.
+- Scopes key on run facts only.
+- The workspace runtime records the resolved selection for each step.
+
+#### Layered realizations
+
+- A realization may declare `builds_on:` the name of another realization of
+  the same concept, such as `builds_on: basic-session`.
+- A layer satisfies the same contract. The workspace runtime loads the base
+  realization's skill first, then the layer's.
+- Selecting a layer brings in its base. The base must be visible: in the same
+  marketplace, in an ancestor, in a realization marketplace in the stack, or
+  in the workspace.
+- A layer's own settings sit under its name, against its own schema.
+- A layer is allowed wherever a realization is, including a downstream
+  marketplace layering on an ancestor's realization. It is never the default
+  unless its own marketplace defines the concept.
+
+#### The workspace graph
+
+- A consuming workspace may declare, in its own `.claude/skills/`,
+  refinements, observers, entry chains with a hand-off, and capabilities. Their
+  layout is in §2.
+- The workspace's own concepts are referenced as `<concept>@workspace`.
+  `workspace` is reserved for them, so the name never clashes with a
+  marketplace's.
+- They follow the same rules as a marketplace at the bottom of the stack, and
+  they order after every marketplace.
+- They are not compiled or committed separately. The workspace runtime
+  composes them on each call, and the hash of the composed graph covers them.
+- The workspace runtime runs the same checks on them on every call. Guidance's
+  own checks never run in a workspace (§6).
+
+#### Lifecycle
+
+Only a concept's own marketplace may change its lifecycle.
+
+- **Deprecate.** The concept declares `deprecated: "reason"`, optionally with
+  `replaced_by: <concept>@<marketplace>`. The checks and the workspace runtime
+  warn wherever it is named: in refinements, `after:`, hand-offs, `uses:` and
+  settings keys. Removing it later is MAJOR.
+- **Rename.** The new name declares `aliases: [<old name>]`. Anything that
+  names the old name resolves to the new one, with a warning. Dropping an
+  alias is MAJOR.
+- **Replace.** The owner deprecates the concept with `replaced_by`. A
+  downstream marketplace never replaces an upstream concept. It refines the
+  concept, or the workspace selects another realization.
+
+#### Interaction values
+
+`interaction:` is declared on a node. It defaults to `autonomous`.
+
+- **autonomous:** the run does not wait for the operator.
+- **pause:** the run stops until the operator answers, and the answer is
+  validated before the run goes on.
+- **conversational:** a live session with the operator. The workspace runtime
+  refuses it, and the checks warn, until a deferred session can be resumed
+  with the operator's answer.
+- A refinement is a scheduled session, so it may use any of the three values.
+  It inherits no interaction limit from its parent.
+
+#### Runs and declared effects
+
+- A realization declares `runs: agent` or `runs: command`.
+- `agent`: the step runs as an agent session.
+- `command`: the step has no session. The workspace runtime runs the command
+  at `command:`, a path relative to the skill directory, and records its exit
+  status and output. The activation checks still run first.
+- An automated gate is a refinement of the gate phase with a command
+  realization. The gate's conclude step folds the results worst-outcome.
+- `effects:` lists effects outside the repository: `push`, `pull-request`,
+  `deployment` or `external-message`. The default is `[]`. A realization that
+  sends a message declares `external-message`.
+- The workspace runtime checkpoints each step in git, so a rewind restores the
+  files. It cannot undo a declared effect.
+- A run has time and token limits. The workspace runtime records what was
+  spent.
+
+#### Declaration format
+
+- The declaration is one top-level `graph:` key in the frontmatter of
+  `skills/concept/SKILL.md`. Its YAML is block style only: nested maps, block
+  lists, flow lists of scalars, flow maps of scalars, and plain or
+  double-quoted scalars. It has no anchors and no multi-line strings.
+- `graphSpecVersion: "1.0"` is required whenever `graph:` is present.
+- Omitting `role` makes the concept a capability.
+- A reference in a declaration is always qualified, `<concept>@<marketplace>`,
+  except `builds_on`, which names a realization of the same concept.
+  `workspace` is reserved for a consuming workspace's own concepts.
+- The `## Graph participation` section repeats the declaration. It has one
+  bullet per declared field, except `graphSpecVersion`, in declaration order,
+  in the form `- **<field>:** <value>`:
+  - a scalar is written as it is;
+  - a list is its items joined by `, `;
+  - `edges` is `outcome → target` pairs joined by `, `;
+  - a role filter is `role: phase`;
+  - `when:` is `key=value` pairs joined by `, `.
+  The checks report any difference between the section and the frontmatter.
+  A capability has no role and no such section.
+
+A phase concept, `build` in the `acme-core` marketplace. Prose is omitted.
+
+```markdown
+---
+name: build
+description: Build the change and report whether the build passed.
+graph:
+  graphSpecVersion: "1.0"
+  role: phase
+  interaction: autonomous
+  edges:
+    - outcome: passed
+      to: deliver@acme-core
+    - outcome: failed
+      to: triage@acme-core
+  uses: [secrets@acme-core]
+---
+
+## Graph participation
+
+- **role:** phase
+- **interaction:** autonomous
+- **edges:** passed → deliver@acme-core, failed → triage@acme-core
+- **uses:** secrets@acme-core
+```
+
+A refinement, `type-check`, in the `acme-web` marketplace. It refines the
+phase above. It is optional, so the workspace can switch it off (§3).
+
+```markdown
+---
+name: type-check
+description: Type-check the web build when the project declares TypeScript.
+graph:
+  graphSpecVersion: "1.0"
+  role: refinement
+  interaction: autonomous
+  refines: build@acme-core
+  after: [lint@acme-web]
+  optional: true
+  when: {path_exists: tsconfig.json}
+  uses: [secrets@acme-core]
+---
+
+## Graph participation
+
+- **role:** refinement
+- **interaction:** autonomous
+- **refines:** build@acme-core
+- **after:** lint@acme-web
+- **optional:** true
+- **when:** path_exists=tsconfig.json
+- **uses:** secrets@acme-core
+```
+
+#### Compiled graphs
+
+- Each marketplace that defines graph concepts commits `concept-graph.json` at
+  its repository root. Only `guidance_check.py --compile` writes it.
+- It records the `graphSpecVersion` and the marketplace's name. It records
+  each direct upstream marketplace, with the plugin versions it was authored
+  against and that upstream's `graphHash`. It records the nodes, sorted by id,
+  each with its declared fields, its contract and its realizations. It records
+  the capabilities, and its own `graphHash`.
+- `graphHash` is `sha256:` followed by the SHA-256 digest of the canonical
+  JSON of the object without `graphHash`:
+  `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`.
+  The file body is `json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False)`
+  followed by a newline.
+- There are no timestamps. The same inputs always write the same bytes.
+- The checks confirm the file matches a fresh compile, and that each recorded
+  upstream hash matches the upstream that resolves (see `spec/`).
+
+#### graphSpecVersion and graph semver
+
+- Every graph declaration, contract and compiled graph carries
+  `graphSpecVersion`. The checks and the workspace runtime each declare the
+  range they support. Each refuses a file outside that range, with a message
+  that names the upgrade.
+- A plugin's version follows its part of the compiled graph: the nodes, edges,
+  contracts and declarations of the concepts it defines.
+- A change is **MAJOR** when it:
+  - removes a phase or concept, or renames it without an alias;
+  - drops an alias;
+  - removes an edge;
+  - narrows an input, frame or result contract;
+  - makes an optional refinement or observer required;
+  - adds or narrows a `when:` on a published refinement or observer;
+  - changes a contract from `selection: many` to `selection: one`.
+- A change is **MINOR** when it:
+  - adds phases, entries, refinements, observers or optional inputs;
+  - renames a concept with an alias;
+  - deprecates a concept;
+  - changes a contract from `selection: one` to `selection: many`.
+- The checks compare a plugin's part with the compiled graph at its previous
+  `<plugin>--v<version>` tag. A plugin with no previous tag has nothing to
+  compare, and passes.
+- A compiled graph is valid at run time against any installed upstream version
+  that satisfies its declared range. A MINOR upstream release only adds. The
+  workspace runtime composes with the installed versions, unless the workspace
+  pins exact versions, and it records the versions it used.
+
+#### The active stack
+
+- The active stack is the marketplaces and plugins declared in the committed
+  project `.claude/settings.json`, with their inherited chains (§9).
+- A plugin enabled only at local or user scope is not in the stack. The
+  workspace runtime lists it as a warning.
+- Guidance and its plugins are never in the stack. The workspace runtime
+  excludes them, with a warning. A consuming workspace never registers
+  guidance (§6).
+
+#### What counts as a marketplace repository
+
+- The graph checks run only in a marketplace repository: a git repository
+  whose top level holds `.claude-plugin/marketplace.json`. §6 gives the full
+  test.
+- A `marketplace.json` in a subdirectory, a submodule, a fixture, or the target
+  of `git -C <dir>` does not qualify.
+
+#### The stated checks
+
+- Each check, with its id, its severity, whether it is mechanical or judgement,
+  and where it runs (`marketplace`, `workspace` or `both`), is in
+  [`spec/checks.md`](../spec/checks.md). This section does not restate them.
+- The mechanical checks run in the `guidance-conventions` script. Judgement
+  checks stay in the skills.
+- The conformance cases in `spec/conformance/` are the shared reference. An
+  implementation of the workspace-side checks must agree with them on the
+  checks it shares.
+
+#### Still forbidden
+
+- Editing an upstream concept, its contract or its realizations.
+- Inserting a phase between upstream phases, or redirecting an upstream edge.
+- Anyone but the defining marketplace marking or changing a concept's default.
+- A refinement or observer tightening, loosening or replacing what it extends.
+- Replacing another marketplace's concept. Only its owner deprecates it.
 
 ### Consequences
 

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Realizes block (the realizes fenced block of a realization of an inherited concept)",
+  "description": "The parsed value of the realizes block in a realization that realizes a concept defined by an upstream marketplace. All three keys are required. concept is the qualified concept reference. name is the realization's name, and it is required. contractVersion is the range of the Tier 2 contract that the realization satisfies. The schema checks the shape of the range but not its meaning. The compliance script checks that the range is satisfied by the contract it targets, and that the realization is never marked as the default for an inherited concept.",
+  "type": "object",
+  "properties": {
+    "concept": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "The qualified concept reference, <concept>@<marketplace>."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "The realization's name. It must be unique among the realizations of the concept."
+    },
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^[~^<>=|0-9.xX* -]+$",
+      "description": "A version range, such as ^1.1.0."
+    }
+  },
+  "required": ["concept", "name", "contractVersion"],
+  "additionalProperties": false
+}

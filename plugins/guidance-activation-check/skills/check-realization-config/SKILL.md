@@ -72,13 +72,24 @@ The repository is the one at `${CLAUDE_PROJECT_DIR}`.
    contract range, so step 4 skips the gate and says so. A concept's own
    realization need not carry the block.
 
-3. **Find the selection for this realization.** Look for a top-level key equal
-   to the concept's bare name.
-   - No such key, or a key whose `realization` names a different realization:
-     there is nothing to check for this realization. Say which realization the
-     test selection names, if any, and return.
-   - A key with no `realization` value: report it as a finding and name the key
-     to add.
+3. **Find the selections for this realization.** Look for a top-level key equal
+   to the concept's bare name. That key holds a base selection, and may also hold
+   scoped selections (pattern 13) and, when the contract allows several
+   realizations, a list of selections (pattern 12).
+   - **Base selection.** The key's own `realization` value.
+   - **Scoped selections.** Each entry under `scoped:`. Its `when:` keys are run
+     facts such as the environment or the node. They have no value in a test, so
+     do not evaluate them. Check each entry whose `realization` names this
+     realization, and say which `when:` it carries.
+   - **Several selections.** When the key lists more than one realization
+     (pattern 12), read each listed item as a base selection, with its own
+     `config`. The form of the list is the one
+     [architecture.md section 3](../../../../docs/architecture.md#3-workspace-configuration-marketplace-plugin-settingsyml)
+     gives for multiple selections.
+   - No selection in the file names this realization: there is nothing to check
+     for it. Say which realization the test selection names, if any, and return.
+   - A selection with no `realization` value: report it as a finding and name the
+     key to add.
    - A `realization` value is a bare name, or `name@marketplace` where
      `marketplace` is this repository's `name` in
      `.claude-plugin/marketplace.json`. Any other qualifier does not select this
@@ -99,13 +110,15 @@ The repository is the one at `${CLAUDE_PROJECT_DIR}`.
      contract's version and the range.
    - A realization with no range skips this gate; say so in a note.
 
-5. **Validate the config.** Validate the selection's `config` block against the
-   realization's `schema.json`, and no more than this:
+5. **Validate the config.** Validate the `config` block of each selection that
+   step 3 collected, against the realization's `schema.json`, and no more than
+   this:
    - every field in the schema's `required` array is present;
    - every field's value matches the schema's declared `type`.
    Report each missing or invalid field, using the schema's `description` if
-   present, what is expected, and that the fix is in
-   `marketplace-plugin-settings.yml` under `<concept>.config`.
+   present, what is expected, and where the fix goes: under `<concept>.config`
+   for the base selection, or under that scoped entry's or listed item's
+   `config`, in `marketplace-plugin-settings.yml`.
 
 ## Reporting
 

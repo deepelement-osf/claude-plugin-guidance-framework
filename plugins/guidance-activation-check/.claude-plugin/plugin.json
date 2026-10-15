@@ -1,6 +1,6 @@
 {
   "name": "guidance-activation-check",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Authoring check for a concept realization inside a plugin marketplace repository, validating its test configuration against the realization's published config schema. It does nothing outside a marketplace repository, so a realization may call it if installed.",
   "author": {
     "name": "DeepElement",

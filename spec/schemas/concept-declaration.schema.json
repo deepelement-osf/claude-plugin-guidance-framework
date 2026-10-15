@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Concept declaration (the graph: frontmatter of a Tier 1 concept skill)",
+  "description": "The value of the single top-level graph: key in the YAML frontmatter of skills/concept/SKILL.md, as parsed to JSON. The key is present on every graph participant, and on a capability only when the capability declares graph fields. Exactly one branch of oneOf matches a valid declaration. The branch is chosen by role: phase, entry, refinement, observer, or no role at all for a capability. Each branch sets additionalProperties to false, so a field that does not apply to the role is rejected. Each branch requires graphSpecVersion. The schema does not check rules that need more than one document or a repository check, such as: each reference resolving, a refines target having a role the parent accepts, an after: cycle, the lifecycle of a deprecated concept, selection one for a phase or entry contract, a hand-off target having an input contract, or the match between this block and the Graph participation section. The compliance script checks those. References are qualified as <concept>@<marketplace>, except that when.node may use the bare concept name. The qualifier workspace is reserved for a consuming workspace's own concepts.",
+  "oneOf": [
+    { "$ref": "#/$defs/phase" },
+    { "$ref": "#/$defs/entry" },
+    { "$ref": "#/$defs/refinement" },
+    { "$ref": "#/$defs/observer" },
+    { "$ref": "#/$defs/capability" }
+  ],
+  "$defs": {
+    "graphSpecVersion": {
+      "const": "1.0",
+      "description": "The graph spec version this declaration is written to. Required whenever the graph: key is present."
+    },
+    "role": {
+      "enum": ["phase", "entry", "refinement", "observer"]
+    },
+    "interaction": {
+      "enum": ["autonomous", "pause", "conversational"],
+      "description": "Nodes only. Omitted means autonomous. Conversational is refused by the compliance script until the round trip is proven."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "A bare concept name, or a bare alias, as used in aliases:."
+    },
+    "qualifiedRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "A concept reference, <concept>@<marketplace>. The marketplace segment may be workspace for a consuming workspace's own concept."
+    },
+    "nodeRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(@[a-z0-9]+(-[a-z0-9]+)*)?$",
+      "description": "The node named in a when: run fact. It may be the bare concept name or a qualified reference."
+    },
+    "outcome": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "An outcome name, such as passed or failed."
+    },
+    "edge": {
+      "type": "object",
+      "description": "One outcome of a phase or entry, and the node the run goes to next. A terminal node omits edges.",
+      "properties": {
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "to": { "$ref": "#/$defs/qualifiedRef" }
+      },
+      "required": ["outcome", "to"],
+      "additionalProperties": false
+    },
+    "edges": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "uses": {
+      "type": "array",
+      "description": "Qualified references to any concept, including a capability, used by name.",
+      "items": { "$ref": "#/$defs/qualifiedRef" }
+    },
+    "aliases": {
+      "type": "array",
+      "description": "Former names that still resolve, with a warning.",
+      "items": { "$ref": "#/$defs/name" }
+    },
+    "after": {
+      "type": "array",
+      "description": "Refinements and observers only. Qualified references to nodes this one orders after. A cycle is an error.",
+      "items": { "$ref": "#/$defs/qualifiedRef" }
+    },
+    "optional": {
+      "type": "boolean",
+      "description": "Refinements and observers only. Default false. A workspace may switch an optional one off."
+    },
+    "when": {
+      "type": "object",
+      "description": "Refinements and observers only. Every key must hold. The keys node, path_exists and setting are reserved. Any other key is a call parameter, such as environment. Those keys are open by design, so additionalProperties is a value schema here instead of false. The compliance script checks the key names.",
+      "properties": {
+        "node": { "$ref": "#/$defs/nodeRef" },
+        "path_exists": {
+          "type": "string",
+          "description": "A path relative to the repository root."
+        },
+        "setting": {
+          "type": "string",
+          "description": "A workspace setting key."
+        }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "observes": {
+      "description": "Observers only. A phase or entry, all for every node in scope, or a role filter.",
+      "oneOf": [
+        { "type": "string", "const": "all" },
+        { "$ref": "#/$defs/qualifiedRef" },
+        {
+          "type": "object",
+          "properties": {
+            "role": { "enum": ["phase", "entry", "refinement"] }
+          },
+          "required": ["role"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "on": {
+      "description": "Observers only. Either concluded, or a list of outcomes that the observer fires on.",
+      "oneOf": [
+        { "type": "string", "const": "concluded" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/outcome" }
+        }
+      ]
+    },
+    "phase": {
+      "type": "object",
+      "description": "A phase: a node that runs frame, support and conclude. It may have edges.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "role": { "const": "phase" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "edges": { "$ref": "#/$defs/edges" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": {
+          "type": "string",
+          "description": "The reason. Lifecycle is set by the owning marketplace only."
+        },
+        "replaced_by": { "$ref": "#/$defs/qualifiedRef" },
+        "aliases": { "$ref": "#/$defs/aliases" }
+      },
+      "required": ["graphSpecVersion", "role"],
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "description": "An entry: a phase that starts its own chain. Its last node may hand off, so it may declare handoff:. Otherwise it is the same as a phase.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "role": { "const": "entry" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "edges": { "$ref": "#/$defs/edges" },
+        "handoff": { "$ref": "#/$defs/qualifiedRef" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": {
+          "type": "string",
+          "description": "The reason. Lifecycle is set by the owning marketplace only."
+        },
+        "replaced_by": { "$ref": "#/$defs/qualifiedRef" },
+        "aliases": { "$ref": "#/$defs/aliases" }
+      },
+      "required": ["graphSpecVersion", "role"],
+      "additionalProperties": false
+    },
+    "refinement": {
+      "type": "object",
+      "description": "A refinement: a node that adds domain obligations to one parent. It has exactly one refines: target. It may have after, optional and when.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "role": { "const": "refinement" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "refines": { "$ref": "#/$defs/qualifiedRef" },
+        "after": { "$ref": "#/$defs/after" },
+        "optional": { "$ref": "#/$defs/optional" },
+        "when": { "$ref": "#/$defs/when" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": {
+          "type": "string",
+          "description": "The reason. Lifecycle is set by the owning marketplace only."
+        },
+        "replaced_by": { "$ref": "#/$defs/qualifiedRef" },
+        "aliases": { "$ref": "#/$defs/aliases" }
+      },
+      "required": ["graphSpecVersion", "role", "refines"],
+      "additionalProperties": false
+    },
+    "observer": {
+      "type": "object",
+      "description": "An observer: a node that runs after another node concludes and cannot change its outcome. It declares what it observes and the outcomes it fires on.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "role": { "const": "observer" },
+        "interaction": { "$ref": "#/$defs/interaction" },
+        "observes": { "$ref": "#/$defs/observes" },
+        "on": { "$ref": "#/$defs/on" },
+        "after": { "$ref": "#/$defs/after" },
+        "optional": { "$ref": "#/$defs/optional" },
+        "when": { "$ref": "#/$defs/when" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": {
+          "type": "string",
+          "description": "The reason. Lifecycle is set by the owning marketplace only."
+        },
+        "replaced_by": { "$ref": "#/$defs/qualifiedRef" },
+        "aliases": { "$ref": "#/$defs/aliases" }
+      },
+      "required": ["graphSpecVersion", "role", "observes", "on"],
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "description": "A capability: a concept with no role. It is not in the graph. It is used by name, and it may have no contract. It has no interaction, edges, refines, observes or on. A role key here is rejected by additionalProperties.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "uses": { "$ref": "#/$defs/uses" },
+        "deprecated": {
+          "type": "string",
+          "description": "The reason. Lifecycle is set by the owning marketplace only."
+        },
+        "replaced_by": { "$ref": "#/$defs/qualifiedRef" },
+        "aliases": { "$ref": "#/$defs/aliases" }
+      },
+      "required": ["graphSpecVersion"],
+      "additionalProperties": false
+    }
+  }
+}

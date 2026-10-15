@@ -1,0 +1,24 @@
+{
+  "capabilities": [],
+  "graphHash": "sha256:b2e86676533904d725c22f981233626eed38651c78205e352f621157f0a899f2",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-ops",
+  "nodes": [
+    {
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "selection": "one"
+      },
+      "id": "deploy@acme-ops",
+      "interaction": "autonomous",
+      "plugin": "acme-deploy",
+      "realizations": [],
+      "role": "phase",
+      "version": "1.0.0"
+    }
+  ],
+  "upstreams": []
+}

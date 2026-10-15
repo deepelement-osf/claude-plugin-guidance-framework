@@ -1,0 +1,12 @@
+{
+  "graphSpecVersion": "1.0",
+  "selection": "many",
+  "fold": "all",
+  "outcomes": ["passed", "failed"],
+  "frame": {
+    "type": "object",
+    "properties": {
+      "goal": {"type": "string"}
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "acme-audit",
+  "version": "1.0.0",
+  "description": "Observes every phase and records that the phase concluded.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

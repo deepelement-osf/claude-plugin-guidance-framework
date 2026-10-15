@@ -14,7 +14,7 @@
     {
       "name": "guidance-activation-check",
       "source": "./plugins/guidance-activation-check",
-      "description": "Shared pre-flight check that concept-plugin realizations invoke before doing real work, validating marketplace-plugin-settings.yml against the active realization's published config schema."
+      "description": "Authoring check for a concept realization inside a plugin marketplace repository, validating its test configuration against the realization's published config schema. It does nothing outside a marketplace repository."
     }
   ]
 }

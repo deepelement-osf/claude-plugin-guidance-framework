@@ -16,7 +16,7 @@ a published marketplace and a consuming workspace.
 
 | Role | What it is |
 |---|---|
-| **guidance marketplace** | `claude-plugin-guidance` itself (`DeepElement/claude-plugin-guidance-framework`): authoring tooling for marketplace authors (`guidance-conventions`, `guidance-activation-check`). It ships no concept plugins. |
+| **guidance marketplace** | `claude-plugin-guidance` itself (`DeepElement/claude-plugin-guidance-framework`): authoring tooling for marketplace authors (`guidance-conventions`, `guidance-activation-check`). It ships no concept plugins. Guidance runs only in a marketplace repository, and a consuming workspace never registers or runs it (§6). |
 | **published marketplace** | A marketplace authored with the guidance marketplace that publishes concept plugins (§1). Each concept plugin makes its marketplace that concept's **defining marketplace**. |
 | **realization marketplace** | A marketplace that offers realizations for concepts owned by an existing published marketplace (§10). |
 | **consuming workspace** | The workspace (a repository or project) that registers and uses marketplaces, selects and configures realizations in `marketplace-plugin-settings.yml` (§3), and may author realizations of its own (§2). |
@@ -110,18 +110,25 @@ workspace never filled in a required credential, and a skill fails deep
 inside a provider implementation with a confusing error, or worse,
 silently does the wrong thing.
 
-The guidance marketplace closes that gap with a dedicated check that
-runs before any provider does real work: it reads the workspace's
-settings, confirms the selected provider still exists and matches
-what's configured, and validates every required configuration value is
-present. If anything is
-wrong, the workspace gets a specific, actionable message — "concept X's
-selected provider Y needs config field Z" — instead of a failure buried
-in provider-specific logic. This is what makes the pattern trustworthy
-to adopt broadly: a missing or stale configuration comes with a clear,
+The safeguard is an activation check that runs before any provider does
+real work: it reads the workspace's settings, confirms the selected
+provider still exists and matches what's configured, and validates every
+required configuration value is present. If anything is wrong, the
+workspace gets a specific, actionable message — "concept X's selected
+provider Y needs config field Z" — instead of a failure buried in
+provider-specific logic. This is what makes the pattern trustworthy to
+adopt broadly: a missing or stale configuration comes with a clear,
 early, blocking message instead of a failure buried in provider logic.
 It checks configuration against a schema and nothing more; §6 says what it
 cannot catch.
+
+The workspace runtime runs this check before every step in a consuming
+workspace. Guidance does not run in a workspace. The guidance skill does
+nothing outside a marketplace repository (§6), a consuming workspace never
+registers the guidance marketplace to get the check, and a realization
+that does not find the guidance skill installed runs its own short inline
+config check instead (§7, Tier 3). So the safeguard holds whether or not
+guidance is present.
 
 ## What adopting this produces
 
@@ -215,8 +222,9 @@ Each concept plugin contains, as skills within that single plugin:
   - declares which concept + contract version it satisfies (in SKILL.md)
   - publishes its own `schema.json`, a superset compatible with Tier 2's
     base `schema.json` (see §3, §7)
-  - begins its instructions by invoking the activation-check convention
-    (§6) before doing any real work
+  - begins its instructions by calling the activation check (§6), if it is
+    installed, before doing any real work; otherwise it runs its own inline
+    config check (§7, Tier 3)
 
 ### 2. Realizations may come from three sources
 
@@ -245,16 +253,16 @@ A workspace-authored realization lives at `.claude/skills/realize-<name>/`
 in the consuming workspace: a `SKILL.md` with a sibling `schema.json`,
 and the same `realizes` block as any other realization (§10). It is a
 skill in the workspace, not a plugin, so it has no `plugin.json` and no
-`dependencies`; the workspace registers the guidance marketplace and
-enables `guidance-activation-check` itself, so the skill's first
-instruction (§6) can run.
+`dependencies`. It never declares guidance. Its first instruction (§6)
+calls the activation check if that skill happens to be installed, and
+otherwise runs the realization's own inline config check.
 
-This is the location the activation check reads for the realization use
+This is the location a workspace runtime reads for the realization use
 case, and only one level deep: `realize-<name>/` directly under
 `.claude/skills/`. It is not a restriction on any other local override
 (§10): a workspace may keep whatever else it likes elsewhere, and
 guidance does not look. A realization kept elsewhere is simply not a
-candidate the activation check will find, so a selection that names it is
+candidate a workspace runtime will find, so a selection that names it is
 reported as stale (§6). `validate-concept-plugin` check B4 reports a
 workspace-authored realization outside this location as an error, and B1
 does the same for a selected skill whose `realizes` block is missing or
@@ -304,7 +312,7 @@ consuming workspace in three steps, plus a qualification when needed:
 
 | Step | Where | Rule |
 |---|---|---|
-| 1. Register every marketplace involved | `.claude/settings.json` [`extraKnownMarketplaces`](https://code.claude.com/docs/en/settings-reference#extraknownmarketplaces), under a key equal to the marketplace's `name` | Settings are not transitive; §9 says what the workspace must register, and the guidance marketplace is one of them (§10). Registering makes realizations available and turns none on. |
+| 1. Register every marketplace involved | `.claude/settings.json` [`extraKnownMarketplaces`](https://code.claude.com/docs/en/settings-reference#extraknownmarketplaces), under a key equal to the marketplace's `name` | Settings are not transitive; §9 says what the workspace must register. Registering makes realizations available and turns none on. |
 | 2. Enable the plugins | `enabledPlugins`, or `claude plugin install` | §9 explains install versus enable. An enabled realization is a candidate for selection. |
 | 3. Select | `marketplace-plugin-settings.yml`, `<concept>: realization: <name>` | The one binding file. |
 | 4. Qualify, only when ambiguous | `realization: aws-secrets-manager@acme-aws-realizations` | Needed only if the bare name matches more than one candidate. The qualifier is the marketplace that ships the realization. |
@@ -454,10 +462,11 @@ finding.
 ### 6. Activation check: a shared convention, not a hook
 
 A dedicated plugin, `guidance-activation-check`, provides a shared skill
-that any Tier 3 realization's instructions invoke first, before doing
-real work, passing the concept, the realization's own name and its own
-skill directory. A caller that passes names only still works, without the
-contract-version gate or the no-entry fallback. The skill:
+that any Tier 3 realization's instructions call first, if it is installed,
+before doing real work, passing the concept, the realization's own name and
+its own skill directory. A caller that passes names only still works,
+without the contract-version gate or the no-entry fallback. The skill's
+steps are:
 
 1. Reads `marketplace-plugin-settings.yml` for the concept in question.
 2. Confirms which realization applies and that it matches the
@@ -475,16 +484,39 @@ contract-version gate or the no-entry fallback. The skill:
    misbehave.
 
 This is implemented as a shared skill convention (every realization's
-SKILL.md is expected to invoke it as its first step) rather than a
-Claude Code hook, so it works the same way regardless of how a given
+SKILL.md is expected to call it, if installed, as its first step) rather
+than a Claude Code hook, so it works the same way regardless of how a given
 realization is triggered, and doesn't depend on hook mechanics that may
 change independently of this pattern.
 
-The plugin is a runtime dependency of every realization that ships in a
-plugin: the realization plugin's marketplace entry declares it with a
-semver range (§10, "Dependency, allowlist and README"). A workspace-authored
-realization has no plugin, so the workspace registers the guidance
-marketplace and enables the plugin itself (§2).
+#### Where the check runs
+
+- **Inside a marketplace repository**, the check is an authoring aid. It
+  checks a realization being authored against that repository's own Tier 2
+  schema and contract range, and it reads the author's test selection from
+  a `marketplace-plugin-settings.yml` at the repository root. With no test
+  settings, it reports that there is nothing to check.
+- **Outside a marketplace repository, the check does nothing.** It runs no
+  check and prints nothing. A directory is a marketplace repository only
+  when both of these hold:
+  - `${CLAUDE_PROJECT_DIR}/.claude-plugin/marketplace.json` exists;
+  - and `git rev-parse --show-toplevel`, run in `${CLAUDE_PROJECT_DIR}`,
+    prints `${CLAUDE_PROJECT_DIR}`.
+
+  A `marketplace.json` anywhere else never qualifies, including one in a
+  submodule, one in a subdirectory, one in a fixture directory, and one in
+  the target of a `git -C <dir>` command.
+- **In a consuming workspace, guidance does not run.** The workspace runtime
+  runs the activation checks, as this section states them, before every
+  step, including command realizations. The workspace runtime implements
+  these checks itself, and it does not depend on the guidance marketplace
+  being registered, installed or enabled.
+
+A realization plugin never declares `guidance-activation-check`, or any
+other guidance plugin, as a dependency. A realization calls the check if it
+is installed, and otherwise runs its own short inline config check (§7,
+Tier 3). A workspace-authored realization has no plugin, and it follows the
+same rule (§2).
 
 #### No entry for the concept
 
@@ -517,7 +549,7 @@ realization runs should select it.
 - It does not authenticate its caller; a skill can pass it any
   realization name. It shows consistency, not authenticity.
 - It does not gate a skill that merely references a concept (§5). Only a
-  realization's own first instruction runs it.
+  realization's own first instruction calls it.
 - It cannot always find a workspace's realizations from a linked git
   worktree that has no `.claude/skills` of its own, because Claude Code
   then loads the main checkout's skills. It compares directories after
@@ -632,16 +664,16 @@ these conventions.
   schema (`default:`) rather than making everything required — a
   realization should need the smallest config that actually works,
   deferring advanced options to optional fields.
-- Invoke the activation check (§6) as literally the first instruction in
-  the realization's SKILL.md, before any operational logic, so it's
-  unambiguous that nothing else runs first. Name the skill as
-  `guidance-activation-check:check-realization-config`, pass the concept,
-  the realization's own name and `${CLAUDE_SKILL_DIR}`, and say what to do
-  when that skill is unavailable: stop and tell the user to register and
-  enable `guidance-activation-check`. A realization plugin declares the
-  plugin as a dependency so that is rare (§10); a workspace-authored
-  realization has no plugin to declare it in, so the line is its only
-  safeguard (§2).
+- Call the activation check (§6) as literally the first instruction in the
+  realization's SKILL.md, before any operational logic, so it's unambiguous
+  that nothing else runs first. Name the skill as
+  `guidance-activation-check:check-realization-config`, and pass the
+  concept, the realization's own name and `${CLAUDE_SKILL_DIR}`. Call it if
+  it is installed. Otherwise run the realization's own short inline check,
+  which validates the `config` block against this realization's
+  `schema.json`. A realization plugin never declares
+  `guidance-activation-check` as a dependency (§10), and a workspace-authored
+  realization has no plugin to declare it in (§2).
 - If a realization is the concept's pinned default (§4), say so
   explicitly in its SKILL.md (not only in the concept skill), so anyone
   reading the realization file directly still knows its status.
@@ -942,7 +974,7 @@ acme-aws-realizations/                       # marketplace name
         ├── .claude-plugin/plugin.json
         └── skills/
             └── realize-aws-secrets-manager/
-                ├── SKILL.md                 # `realizes` block; activation check first
+                ├── SKILL.md                 # `realizes` block; activation check first, if installed
                 └── schema.json              # superset of the defining plugin's Tier 2 schema
 ```
 
@@ -959,7 +991,7 @@ acme-aws-realizations/                       # marketplace name
   ([where skills live](https://code.claude.com/docs/en/skills#where-skills-live)).
 - Each realization follows the Tier 3 conventions in §7: named after the
   provider, a `schema.json` that is a strict superset of the Tier 2
-  schema, and the activation check (§6) invoked first.
+  schema, and the activation check (§6) called first, if installed.
 
 #### The `realizes` declaration
 
@@ -991,25 +1023,22 @@ contractVersion: "^1.1.0"
 
 #### Dependency, allowlist and README
 
-A realization plugin's marketplace entry declares two dependencies, each
-in the object form of §9 with a semver range: the concept plugin it
-implements, and `guidance-activation-check`. The second is a runtime
-dependency, not a convenience: every realization's first instruction (§6)
-runs that plugin's skill. The root marketplace allowlists both marketplaces,
-the defining marketplace and the guidance marketplace
-(`claude-plugin-guidance`), and the README lists both:
+A realization plugin's marketplace entry declares one dependency: the
+concept plugin it implements, in the object form of §9 with a semver range.
+A realization never declares the guidance marketplace or any guidance
+plugin (§6). The root marketplace allowlists the defining marketplace, and
+the README lists it:
 
 ```json
 {
   "name": "acme-aws-realizations",
-  "allowCrossMarketplaceDependenciesOn": ["acme-concepts", "claude-plugin-guidance"],
+  "allowCrossMarketplaceDependenciesOn": ["acme-concepts"],
   "plugins": [
     {
       "name": "acme-aws-realize-secrets",
       "source": "./plugins/acme-aws-realize-secrets",
       "dependencies": [
-        { "name": "acme-secrets", "marketplace": "acme-concepts", "version": "^1.2.0" },
-        { "name": "guidance-activation-check", "marketplace": "claude-plugin-guidance", "version": "^1.0.0" }
+        { "name": "acme-secrets", "marketplace": "acme-concepts", "version": "^1.2.0" }
       ]
     }
   ]
@@ -1024,62 +1053,35 @@ row for each:
 | Marketplace name | Registration source | Plugins used (range) | Why |
 |---|---|---|---|
 | `acme-concepts` | `acme/acme-concepts` (GitHub) | `acme-secrets` `^1.2.0` | Defines `secrets`; the realizations here target it |
-| `claude-plugin-guidance` | `DeepElement/claude-plugin-guidance-framework` (GitHub) | `guidance-activation-check` `^1.0.0` | Pre-flight check every realization runs first |
 
-`^1.0.0` is the right floor to write now: `1.0.0` is the first version of
-`guidance-activation-check` that reads the `realizes` block and gates on
-`contractVersion` (§6), and the caret keeps older versions out. As with any
-range, raise the floor only to a version you have tested against (§9).
-
-The same applies to a concept plugin that ships realizations of its own
-(§4): its entry declares `guidance-activation-check` the same way, and the
-root allowlists `claude-plugin-guidance`.
+A concept plugin that ships realizations of its own (§4) follows the same
+rule: its realizations declare no guidance dependency, and the root does not
+allowlist the guidance marketplace.
 
 The authoring recipe, placement rules and what the consuming workspace
 must register are those of §9; the dependency is declared on the entry
 and not in `plugin.json`, exactly as there. On the consuming workspace's
-side that adds one marketplace to register: the guidance marketplace, under
-a key equal to its `name`, `claude-plugin-guidance`. Installing a
-realization plugin with `claude plugin install` also installs the plugins
-it depends on, the concept plugin (including the realizations the defining
-marketplace ships in it) and `guidance-activation-check`; §9 says what
-enabling alone does not do. Installing is not selecting: a realization
+side, registration is the defining marketplace under its `name`, and
+nothing for guidance. Installing a realization plugin with
+`claude plugin install` also installs the concept plugin it depends on,
+including the realizations the defining marketplace ships in it; §9 says
+what enabling alone does not do. Installing is not selecting: a realization
 marketplace never turns a realization on for a workspace.
 
-When `guidance-activation-check` is missing or disabled, a realization
-cannot run its first instruction. Each realization therefore says what to
-do then (§7, Tier 3).
+Whether or not `guidance-activation-check` is installed, a realization runs
+a config check before its operational logic (§6, §7 Tier 3). Neither path
+depends on a guidance plugin being present.
 
-`validate-concept-plugin` check A8 requires the declaration. Every plugin
-with a `skills/realize-*/`, whether in a realization marketplace or a
-concept plugin that ships realizations of its own, must declare
-`guidance-activation-check` on its marketplace entry, in the object form
-with a `marketplace` and a `version`, and the root must allowlist
-`claude-plugin-guidance`; a missing declaration or allowlist entry is
-blocking. A8 reads the declarations only, and `validate-marketplace` set U
-still checks the range's form and the README section. A workspace-authored
-realization is not a plugin and has nothing to declare (§2).
-
-#### Migrating a realization plugin that lacks the declaration
-
-The first `guidance-conventions` release in which A8 blocks makes a
-realization plugin written against an earlier one fail it until its
-author:
-
-1. Adds the `guidance-activation-check` dependency to the plugin's entry
-   in `marketplace.json`, in the form shown above, with a range such as
-   `^1.0.0`.
-2. Adds `claude-plugin-guidance` to the root's
-   `allowCrossMarketplaceDependenciesOn`, and the matching row to the
-   README's `## Required marketplaces` section.
-
-3. Bumps the plugin's own version as the
-   [upstream duty](#authoring-recipe-published-marketplace-b-with-upstream-a)
-   says: a dependency on a marketplace it did not require before is a
-   MAJOR bump.
-
-The consuming workspace then registers the guidance marketplace, under a
-key equal to its `name`, as described above; nothing else changes for it.
+`validate-concept-plugin` check A8 refuses the declaration. No plugin with a
+`skills/realize-*/`, whether in a realization marketplace or a concept
+plugin that ships realizations of its own, may declare
+`guidance-activation-check` or any other guidance plugin on its marketplace
+entry, and no root may list the guidance marketplace in
+`allowCrossMarketplaceDependenciesOn`. Either is blocking. A8 reads the
+declarations only, and `validate-marketplace` set U still checks the range's
+form and the README section for the dependencies that remain. A
+workspace-authored realization is not a plugin and has nothing to declare
+(§2).
 
 #### What a realization marketplace must not contain
 

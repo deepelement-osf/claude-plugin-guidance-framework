@@ -15,7 +15,7 @@ change that adds or removes a case.
 |---|---|---|
 | A1 | `published-base` | `contract-without-concept` |
 | A2 | `published-base` | `realization-without-contract-skill` |
-| A3 | `published-base` | `schema-unparseable` |
+| A3 | `published-base`, `minimum-accepted`, `maximum-accepted`, `exclusive-minimum-accepted`, `exclusive-maximum-accepted`, `unique-items-accepted` | `schema-unparseable`, `minimum-malformed`, `maximum-malformed`, `exclusive-minimum-malformed`, `exclusive-maximum-malformed`, `unique-items-malformed` |
 | A5 | `published-base` | `two-defaults` |
 | A6 | `published-base` | `schema-drops-required` |
 | A8 | `no-guidance-dependency` | `declares-guidance-dependency`, `invocation-missing` |
@@ -42,7 +42,7 @@ change that adds or removes a case.
 | U2 | `bounded-object-dependency` | `string-form-dependency` |
 | U3 | `marketplace-allowlisted` | `marketplace-not-allowlisted` |
 | U4 | `required-section-complete` | `allowlisted-row-missing` |
-| V-major | | `phase-removed-without-major` |
+| V-major | `minimum-removed`, `maximum-removed`, `exclusive-minimum-removed`, `exclusive-maximum-removed`, `unique-items-removed` | `phase-removed-without-major`, `minimum-added-without-major`, `maximum-added-without-major`, `exclusive-minimum-added-without-major`, `exclusive-maximum-added-without-major`, `unique-items-added-without-major` |
 | X-additive | | `downstream-copies-upstream-edge` |
 | X-hashes | | `upstream-hash-wrong` |
 | X-order | | `after-cycle` |

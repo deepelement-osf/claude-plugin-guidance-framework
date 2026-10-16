@@ -50,7 +50,8 @@ load_json(path) -> Any
 validate_json_schema(instance, schema, root=None) -> list[str]
     Validates an instance against the JSON Schema subset that guidance keeps
     to: type, properties, required, additionalProperties, enum, const, items,
-    pattern, minItems, oneOf and $ref to a local '#/$defs/<name>'. Returns
+    pattern, minItems, uniqueItems, minimum, maximum, exclusiveMinimum,
+    exclusiveMaximum, oneOf and $ref to a local '#/$defs/<name>'. Returns
     error strings with a JSON-path-like location; an empty list means the
     instance is valid. A schema keyword outside the subset raises
     SchemaSubsetError, so a schema is never checked more loosely than it says.
@@ -59,7 +60,9 @@ validate_json_schema(instance, schema, root=None) -> list[str]
     definitions are outside the subset, as spec/README.md says.
 """
 
+import itertools
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -530,8 +533,10 @@ _IGNORED_KEYWORDS = frozenset({
 })
 _SUBSET_KEYWORDS = frozenset({
     "type", "properties", "required", "additionalProperties", "enum", "const",
-    "items", "pattern", "minItems", "oneOf", "$ref",
+    "items", "pattern", "minItems", "uniqueItems", "minimum", "maximum",
+    "exclusiveMinimum", "exclusiveMaximum", "oneOf", "$ref",
 })
+_BOUND_KEYWORDS = ("minimum", "exclusiveMinimum", "maximum", "exclusiveMaximum")
 _MAX_DEPTH = 64
 _LOCAL_REF = re.compile(r"#/(\$defs)/([^/]+)\Z")
 
@@ -596,6 +601,28 @@ def _resolve_ref(ref: Any, root: dict) -> Any:
     return target
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_bound(value: Any) -> bool:
+    """A bound is a finite JSON number. NaN and Infinity are not JSON, and a boolean is not a number.
+
+    An int is always finite. math.isfinite is applied only to a float, because it raises OverflowError
+    for an int too large to convert to a float, and a long integer literal is still a finite JSON number.
+    """
+    return _is_number(value) and (isinstance(value, int) or math.isfinite(value))
+
+
+def keyword_value_problems(schema: dict) -> List[str]:
+    """Why a bound or uniqueItems keyword holds a value the subset does not allow, one message each."""
+    problems = [f"'{key}' must be a finite number, not {json.dumps(schema[key])}"
+                for key in _BOUND_KEYWORDS if key in schema and not _is_bound(schema[key])]
+    if "uniqueItems" in schema and not isinstance(schema["uniqueItems"], bool):
+        problems.append(f"'uniqueItems' must be true or false, not {json.dumps(schema['uniqueItems'])}")
+    return problems
+
+
 def _validate(instance: Any, schema: Any, root: dict, path: str, depth: int) -> List[str]:
     if depth > _MAX_DEPTH:
         raise SchemaSubsetError("schema nesting is too deep; a $ref may be cyclic")
@@ -608,6 +635,9 @@ def _validate(instance: Any, schema: Any, root: dict, path: str, depth: int) -> 
     unknown = sorted(set(schema) - _SUBSET_KEYWORDS - _IGNORED_KEYWORDS)
     if unknown:
         raise SchemaSubsetError(f"schema keyword(s) {', '.join(unknown)} at {path} are outside the subset")
+    problems = keyword_value_problems(schema)
+    if problems:
+        raise SchemaSubsetError(f"{problems[0]} at {path}")
 
     errors: List[str] = []
     if "$ref" in schema:
@@ -627,6 +657,15 @@ def _validate(instance: Any, schema: Any, root: dict, path: str, depth: int) -> 
         pattern = re.sub(r"(?<!\\)\$$", r"\\Z", schema["pattern"])
         if not re.search(pattern, instance):
             errors.append(f"{path}: does not match pattern {schema['pattern']!r}")
+    if _is_number(instance):
+        if "minimum" in schema and instance < schema["minimum"]:
+            errors.append(f"{path}: must be at least {schema['minimum']}")
+        if "exclusiveMinimum" in schema and instance <= schema["exclusiveMinimum"]:
+            errors.append(f"{path}: must be greater than {schema['exclusiveMinimum']}")
+        if "maximum" in schema and instance > schema["maximum"]:
+            errors.append(f"{path}: must be at most {schema['maximum']}")
+        if "exclusiveMaximum" in schema and instance >= schema["exclusiveMaximum"]:
+            errors.append(f"{path}: must be less than {schema['exclusiveMaximum']}")
     if isinstance(instance, dict):
         properties = schema.get("properties", {})
         for key in schema.get("required", []):
@@ -645,6 +684,11 @@ def _validate(instance: Any, schema: Any, root: dict, path: str, depth: int) -> 
     if isinstance(instance, list):
         if "minItems" in schema and len(instance) < schema["minItems"]:
             errors.append(f"{path}: needs at least {schema['minItems']} item(s), has {len(instance)}")
+        if schema.get("uniqueItems") is True:
+            pair = next(((i, j) for i, j in itertools.combinations(range(len(instance)), 2)
+                         if _same(instance[i], instance[j])), None)
+            if pair is not None:
+                errors.append(f"{path}: items {pair[0]} and {pair[1]} are equal, and items must be unique")
         if "items" in schema:
             items = schema["items"]
             if not isinstance(items, (dict, bool)):

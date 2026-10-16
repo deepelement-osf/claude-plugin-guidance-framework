@@ -318,6 +318,93 @@ class SchemaSubsetTests(unittest.TestCase):
         with self.assertRaises(SchemaSubsetError):
             validate_json_schema("x", {"$id": "https://example.invalid/x.json", "type": "string"})
 
+    def test_minimum_includes_its_value(self):
+        self.assertValid(1, {"minimum": 1})
+        self.assertValid(2.5, {"minimum": 1})
+        self.assertInvalid(0, {"minimum": 1})
+        self.assertInvalid(0.5, {"minimum": 1})
+
+    def test_maximum_includes_its_value(self):
+        self.assertValid(10, {"maximum": 10})
+        self.assertValid(-3, {"maximum": 10})
+        self.assertInvalid(10.5, {"maximum": 10})
+
+    def test_exclusive_bounds_exclude_their_value(self):
+        self.assertValid(1.5, {"exclusiveMinimum": 1})
+        self.assertInvalid(1, {"exclusiveMinimum": 1})
+        self.assertValid(9.5, {"exclusiveMaximum": 10})
+        self.assertInvalid(10, {"exclusiveMaximum": 10})
+
+    def test_bounds_combine(self):
+        schema = {"type": "number", "minimum": 0, "exclusiveMaximum": 1}
+        self.assertValid(0, schema)
+        self.assertValid(0.999, schema)
+        self.assertInvalid(1, schema)
+        self.assertInvalid(-0.1, schema)
+
+    def test_bounds_apply_only_to_numbers(self):
+        self.assertValid("abc", {"minimum": 1, "maximum": 0})
+        self.assertValid([1, 2], {"exclusiveMinimum": 5})
+        self.assertValid(None, {"maximum": 0})
+        # A boolean is not a number, so it is not bounded either way.
+        self.assertValid(True, {"minimum": 1, "maximum": 0})
+        self.assertValid(False, {"exclusiveMinimum": 1})
+
+    def test_bounds_must_be_finite_numbers(self):
+        for schema in ({"minimum": "1"}, {"maximum": True}, {"exclusiveMinimum": None},
+                       {"exclusiveMaximum": [1]}, {"minimum": float("nan")},
+                       {"maximum": float("inf")}):
+            with self.subTest(schema=schema):
+                with self.assertRaises(SchemaSubsetError):
+                    validate_json_schema(1, schema)
+
+    def test_a_bound_too_large_for_a_float_is_still_a_finite_number(self):
+        # A long integer literal is a finite JSON number, so it is accepted; it must not raise
+        # OverflowError, which math.isfinite raises for an int too large to become a float.
+        big = 10 ** 400
+        self.assertValid(big, {"maximum": big})
+        self.assertValid(-big, {"minimum": -big})
+        self.assertValid(big - 1, {"exclusiveMaximum": big})
+        self.assertInvalid(big, {"exclusiveMaximum": big})
+        # 1 is below 10 ** 400, so it is an error from the bound, not a crash.
+        self.assertInvalid(1, {"minimum": big})
+
+    def test_a_bound_outside_a_numeric_instance_is_still_checked_as_a_schema(self):
+        # The schema is refused whatever the instance is, so a bad bound never hides.
+        with self.assertRaises(SchemaSubsetError):
+            validate_json_schema("abc", {"type": "string", "minimum": "1"})
+
+    def test_unique_items_compares_by_json_equality(self):
+        schema = {"type": "array", "uniqueItems": True}
+        self.assertValid([1, 2, 3], schema)
+        self.assertValid([], schema)
+        self.assertInvalid([1, 1.0], schema)
+        self.assertInvalid(["a", "a"], schema)
+        self.assertValid([True, 1], schema)
+        self.assertValid([[1, 2], [2, 1]], schema)
+        self.assertInvalid([[1, 2], [1, 2]], schema)
+        self.assertInvalid([None, None], schema)
+
+    def test_unique_items_ignores_object_key_order(self):
+        schema = {"uniqueItems": True}
+        self.assertInvalid([{"a": 1, "b": 2}, {"b": 2, "a": 1}], schema)
+        self.assertValid([{"a": 1, "b": 2}, {"a": 1, "b": 3}], schema)
+        self.assertValid([{"a": 1}, {"a": 1, "b": None}], schema)
+
+    def test_unique_items_false_allows_duplicates(self):
+        self.assertValid([1, 1], {"uniqueItems": False})
+
+    def test_unique_items_must_be_a_boolean(self):
+        for value in ("true", 1, None, [True]):
+            with self.subTest(value=value):
+                with self.assertRaises(SchemaSubsetError):
+                    validate_json_schema([1], {"uniqueItems": value})
+
+    def test_unique_items_reports_the_pair_once(self):
+        errors = validate_json_schema([7, 3, 7, 3], {"uniqueItems": True})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("items 0 and 2", errors[0])
+
 
 class ModelTests(unittest.TestCase):
     def test_marketplace_without_manifest_is_refused(self):

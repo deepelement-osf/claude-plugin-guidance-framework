@@ -30,7 +30,10 @@ compares the upstream's plugin-name prefix, and the loader would silently fall
 back to the default prefix.
 
 Exit 2 (ResolveError) only when none of (a) to (d) gives a copy. The message
-says what was tried, in order.
+says what was tried, in order. When the upstream was found but none of its
+published versions of a plugin satisfies the declared range, the headline says
+that, names the range and the closest published version, and does not say the
+upstream could not be found.
 
 A marketplace reached by two dependents is resolved once, against the first
 dependent that names it. A later dependent's versions are still checked by
@@ -201,6 +204,72 @@ _ADD_SOURCE_FIX = ("add {name} to extraKnownMarketplaces in " + SETTINGS_RELPATH
 def _nothing_found(name: str, tried: List[str]) -> str:
     return f"upstream marketplace {name!r} could not be found; tried, in order: " + "; ".join(tried)
 
+
+def _tuple_key(version: Tuple[int, int, int]) -> int:
+    """One integer per version, so that distances between versions are plain subtraction."""
+    major, minor, patch = version
+    return major * 10 ** 12 + minor * 10 ** 6 + patch
+
+
+def _gap(key: int, conditions: List[Tuple[str, Tuple[int, int, int]]]) -> int:
+    """How far a version lies outside one alternative of a range, in patch steps. Zero when it lies inside."""
+    low, high = 0, None
+    for op, bound in conditions:
+        value = _tuple_key(bound)
+        if op == ">=":
+            low = max(low, value)
+        elif op == ">":
+            low = max(low, value + 1)
+        elif op == "<=":
+            high = value if high is None else min(high, value)
+        elif op == "<":
+            high = value - 1 if high is None else min(high, value - 1)
+    below = max(0, low - key)
+    above = 0 if high is None else max(0, key - high)
+    return max(below, above)
+
+
+def closest_published(published: List[str], rng: str) -> Optional[str]:
+    """The published version nearest to the range rng, or None when there is none.
+
+    Nearest is the fewest patch steps outside the range, with a major step counted as 10**12 patches
+    and a minor step as 10**6. On a tie the lower version is taken. Only plain MAJOR.MINOR.PATCH
+    versions are considered, as parse_version reads them.
+    """
+    alternatives = parse_range(rng)
+    if alternatives is None:
+        return None
+    best: Optional[Tuple[int, int, str]] = None
+    for text in published:
+        parsed = parse_version(text)
+        if parsed is None:
+            continue
+        key = _tuple_key(parsed)
+        gap = min(_gap(key, conditions) for conditions in alternatives)
+        if best is None or (gap, key) < (best[0], best[1]):
+            best = (gap, key, text)
+    return None if best is None else best[2]
+
+
+class NoSatisfyingVersion(ResolveError):
+    """The upstream was found, but none of the versions it publishes of the plugin satisfies the range."""
+
+    def __init__(self, name: str, plugin: str, rng: str, closest: Optional[str]):
+        if closest is None:
+            headline = (f"upstream marketplace {name!r} was found, but it publishes no version of {plugin}, "
+                        f"so none satisfies {rng}")
+            fix = f"publish a version of {plugin} in {name} that satisfies {rng}"
+        else:
+            headline = (f"upstream marketplace {name!r} was found, but no published version of {plugin} "
+                        f"satisfies {rng}; the closest published version is {closest}")
+            fix = (f"widen the range of {plugin} in the dependent to admit {closest}, "
+                   f"or publish a version of {plugin} in {name} that satisfies {rng}")
+        super().__init__(headline, fix)
+        self.name = name
+        self.plugin = plugin
+        self.rng = rng
+        self.closest = closest
+
 class _Resolver:
     def __init__(self, marketplace: Marketplace, options: Options, guidance: str):
         self.marketplace = marketplace
@@ -241,7 +310,8 @@ class _Resolver:
             targets = self._targets(name, needs)
         except ResolveError as exc:
             version_error = exc
-            tried.append(f"version: {exc.message}")
+            if not isinstance(exc, NoSatisfyingVersion):
+                tried.append(f"version: {exc.message}")
         registered = _registered_root() / name
         cache = _cache_root() / name
         for label, directory in (("Claude Code's registered copy", registered), ("the cache", cache)):
@@ -258,6 +328,10 @@ class _Resolver:
 
         if version_error is not None:
             tried.append("fetch: not tried, because no version could be chosen")
+            if isinstance(version_error, NoSatisfyingVersion):
+                # The upstream was found, so its headline says so; "could not be found" would be wrong.
+                raise ResolveError(f"{version_error.message}; tried, in order: " + "; ".join(tried),
+                                   version_error.fix)
             raise ResolveError(_nothing_found(name, tried), version_error.fix)
 
         url = _source_url(self.repo, name)
@@ -315,16 +389,19 @@ class _Resolver:
                     f"and no checkout with tags is present",
                     f"register a source for {name} in {SETTINGS_RELPATH}")
         prefix = f"{need.plugin}--v"
+        published: List[str] = []
         candidates = []
         for tag in tags:
             if not tag.startswith(prefix):
                 continue
             text = tag[len(prefix):]
-            if parse_version(text) is not None and satisfies(text, rng) is True:
+            if parse_version(text) is None:
+                continue
+            published.append(text)
+            if satisfies(text, rng) is True:
                 candidates.append(text)
         if not candidates:
-            raise ResolveError(f"no version of {need.plugin} from {name} satisfies {rng}",
-                               "check the dependency range, or publish a version that satisfies it")
+            raise NoSatisfyingVersion(name, need.plugin, rng, closest_published(published, rng))
         return max(candidates, key=parse_version)
 
     def _checkouts(self, name: str) -> List[Path]:

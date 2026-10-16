@@ -314,6 +314,28 @@ class ResolveTests(unittest.TestCase):
                                          sources={"acme-core": str(source)}), Options())
         self.assertEqual(loaded["acme-core"].plugins["acme-phase"].version, "1.0.0")
 
+    def test_found_but_no_version_in_range_says_so_and_names_the_closest(self):
+        # DEPENDS_ON_CORE needs ^1.0.0; the source publishes only 2.x, so it is found and nothing satisfies.
+        source = make_source(self.tmp / "source" / "acme-core", "acme-core", "acme-phase",
+                             ["2.0.0", "2.1.0", "3.0.0"])
+        with self.assertRaises(ResolveError) as caught:
+            resolve(self.downstream(sources={"acme-core": str(source)}), Options())
+        message = caught.exception.message
+        self.assertIn("'acme-core' was found", message)
+        self.assertIn("satisfies ^1.0.0", message)
+        self.assertIn("the closest published version is 2.0.0", message)
+        self.assertNotIn("could not be found", message)
+        self.assertIn("2.0.0", caught.exception.fix)
+
+    def test_closest_published_is_the_nearest_version_outside_the_range(self):
+        from gc_resolve import closest_published
+        # 2.5.0 is five minor steps above ^1.0.0; 0.9.0 is about one major step below it.
+        self.assertEqual(closest_published(["0.9.0", "2.5.0"], "^1.0.0"), "2.5.0")
+        self.assertEqual(closest_published(["0.9.0", "4.0.0"], "^1.0.0"), "0.9.0")
+        self.assertEqual(closest_published(["0.1.0", "2.0.0", "3.0.0"], "^1.0.0"), "2.0.0")
+        self.assertEqual(closest_published(["1.5.0"], ">=2.0.0"), "1.5.0")
+        self.assertIsNone(closest_published([], "^1.0.0"))
+
     # -- nothing found ------------------------------------------------------
 
     def test_nothing_found_names_each_place_tried_in_order(self):

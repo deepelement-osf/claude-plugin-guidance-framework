@@ -80,7 +80,8 @@ from gc_model import (
     Marketplace,
     realization_in_chain,
 )
-from gc_parse import _IGNORED_KEYWORDS, _SUBSET_KEYWORDS, load_json, validate_json_schema
+from gc_parse import (_IGNORED_KEYWORDS, _SUBSET_KEYWORDS, keyword_value_problems, load_json,
+                      validate_json_schema)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SPEC_SCHEMA_DIR = SCRIPT_DIR.parent.parent.parent / "spec" / "schemas"
@@ -209,6 +210,7 @@ def _subset_problems(node: Any, where: str, root: dict, depth: int = 0) -> List[
         return [f"{where}: a schema must be an object"]
     problems = [f"{where}: keyword {key!r} is outside the guidance JSON Schema subset"
                 for key in sorted(set(node) - _SUBSET_KEYWORDS - _IGNORED_KEYWORDS)]
+    problems += [f"{where}: {problem}" for problem in keyword_value_problems(node)]
     if "$ref" in node:
         ref = node["$ref"]
         match = _LOCAL_REF.match(ref) if isinstance(ref, str) else None

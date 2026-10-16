@@ -1,0 +1,15 @@
+{
+  "graphSpecVersion": "1.0",
+  "selection": "one",
+  "input": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

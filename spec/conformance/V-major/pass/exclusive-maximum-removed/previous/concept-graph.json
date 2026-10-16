@@ -1,0 +1,36 @@
+{
+  "capabilities": [
+    {
+      "contract": {
+        "input": {
+          "properties": {
+            "limit": {
+              "exclusiveMaximum": 10,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "selection": "one"
+      },
+      "id": "secrets@acme-vault",
+      "plugin": "acme-secrets",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "env-file",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "graphHash": "sha256:fdc8bc5fcb8003e66e5eeff118e14407186e02afec4ed14a5d76ea7c571173fb",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-vault",
+  "nodes": [],
+  "upstreams": []
+}

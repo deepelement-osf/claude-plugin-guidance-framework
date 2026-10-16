@@ -24,6 +24,7 @@ V-major (graph semver, plan 3 and 6.3)
     Where the plan leaves a judgement open, the check takes the stricter reading.
     A pattern that changes counts as narrowing, and so does any changed
     oneOf, anyOf, allOf or not. A changed when value counts as narrowing.
+    A bound that tightens, and uniqueItems that is added, count as narrowing.
 
 V-bump (warn)
     A plugin whose current version has a release tag, and whose directory has
@@ -260,6 +261,23 @@ def _join(where: str, key: str) -> str:
     return f"{where}.{key}" if where else key
 
 
+def _tightest_bound(schema: dict, lower: bool) -> Optional[Tuple[Tuple[float, bool], str]]:
+    """The tightest bound a schema states on one side, as (rank, keyword), or None.
+
+    A larger rank admits fewer values. For a lower bound the rank is the value; for an upper bound
+    it is the negated value. Between equal values a strict bound is tighter than a non-strict one.
+    """
+    keys = ("minimum", "exclusiveMinimum") if lower else ("maximum", "exclusiveMaximum")
+    best = None
+    for key in keys:
+        if _is_num(schema.get(key)):
+            value = schema[key] if lower else -schema[key]
+            rank = (value, key.startswith("exclusive"))
+            if best is None or rank > best[0]:
+                best = (rank, key)
+    return best
+
+
 def _narrowing(p: Any, c: Any, p_root: Any, c_root: Any, where: str = "",
                depth: int = 0) -> List[str]:
     """Reasons the schema c accepts fewer instances than the schema p did.
@@ -320,12 +338,17 @@ def _narrowing(p: Any, c: Any, p_root: Any, c_root: Any, where: str = "",
         floor = p.get(key) if _is_num(p.get(key)) else 0
         if _is_num(c.get(key)) and c[key] > floor:
             out.append(f"{label} raises {key}")
-    for key in ("minimum", "exclusiveMinimum"):
-        if _is_num(c.get(key)) and (not _is_num(p.get(key)) or c[key] > p[key]):
-            out.append(f"{label} raises {key}")
-    for key in ("maxItems", "maxLength", "maxProperties", "maximum", "exclusiveMaximum"):
+    for key in ("maxItems", "maxLength", "maxProperties"):
         if _is_num(c.get(key)) and (not _is_num(p.get(key)) or c[key] < p[key]):
             out.append(f"{label} lowers {key}")
+    lower_c, lower_p = _tightest_bound(c, lower=True), _tightest_bound(p, lower=True)
+    if lower_c is not None and (lower_p is None or lower_c[0] > lower_p[0]):
+        out.append(f"{label} raises {lower_c[1]}")
+    upper_c, upper_p = _tightest_bound(c, lower=False), _tightest_bound(p, lower=False)
+    if upper_c is not None and (upper_p is None or upper_c[0] > upper_p[0]):
+        out.append(f"{label} lowers {upper_c[1]}")
+    if c.get("uniqueItems") is True and p.get("uniqueItems") is not True:
+        out.append(f"{label} adds uniqueItems")
     if "pattern" in c and c.get("pattern") != p.get("pattern"):
         out.append(f"{label} adds or changes a pattern")
     for kw in ("oneOf", "anyOf", "allOf"):

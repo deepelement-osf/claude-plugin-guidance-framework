@@ -62,7 +62,8 @@ The schemas use JSON Schema draft 2020-12, and only these keywords:
 - `$schema`, `title`, `description`, `$defs`
 - `$ref`, and only to `#/$defs/...` in the same file
 - `type`, `properties`, `required`, `additionalProperties`
-- `enum`, `const`, `items`, `minItems`, `pattern`
+- `enum`, `const`, `items`, `minItems`, `uniqueItems`, `pattern`
+- `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`
 - `oneOf`
 
 Rules that follow from the subset:
@@ -70,6 +71,13 @@ Rules that follow from the subset:
 - A schema has no `$id`, no remote `$ref`, and no `allOf`, `anyOf`, `not`,
   `if`, `then` or `else`. A role-dependent rule is a `oneOf` with one
   branch per role.
+- A bound is a finite JSON number, and a boolean is not one. A bound
+  applies only to an instance that is a number, so it says nothing about a
+  string, an array or a boolean. `minimum` and `maximum` include their value;
+  `exclusiveMinimum` and `exclusiveMaximum` do not.
+- `uniqueItems` is `true` or `false`. Two items are equal by JSON equality,
+  so `1` and `1.0` are equal, `true` is not equal to `1`, and the order of
+  an object's keys does not matter.
 - Every object sets `additionalProperties` to `false`. These are the
   exceptions, and each one is named in its schema's `description`:
   - `when` in a concept declaration and in a compiled graph. Its keys are

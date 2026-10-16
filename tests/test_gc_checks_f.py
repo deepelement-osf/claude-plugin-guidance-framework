@@ -603,6 +603,20 @@ class SchemaDocumentSubsetTest(unittest.TestCase):
         self.assertTrue(self.problems({"$defs": {"id": {"type": "string"}},
                                        "type": "object", "properties": {"x": {"$ref": "#/definitions/id"}}}))
 
+    def test_bounds_and_unique_items_are_inside_the_subset(self):
+        self.assertEqual(self.problems({"type": "object", "properties": {
+            "n": {"type": "number", "minimum": 0, "exclusiveMaximum": 1.5},
+            "xs": {"type": "array", "uniqueItems": True, "maximum": 3}}}), [])
+
+    def test_a_bound_that_is_not_a_number_is_flagged(self):
+        problems = self.problems({"type": "object", "properties": {"n": {"type": "number", "minimum": "1"}}})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("frame.properties.n", problems[0])
+        self.assertIn("'minimum'", problems[0])
+
+    def test_unique_items_that_is_not_a_boolean_is_flagged(self):
+        self.assertTrue(self.problems({"type": "array", "uniqueItems": "yes"}))
+
     def test_schema_documents_are_six(self):
         self.assertEqual(len(F.schema_documents()), 6)
 

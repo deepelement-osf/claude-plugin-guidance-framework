@@ -467,6 +467,42 @@ class SchemaNarrowingTests(unittest.TestCase):
     def test_max_items_lowered(self):
         self.assertTrue(self.narrow({"type": "array", "maxItems": 5}, {"type": "array", "maxItems": 3}))
 
+    def test_minimum_raised_is_narrowing(self):
+        self.assertTrue(self.narrow({"type": "number", "minimum": 1}, {"type": "number", "minimum": 2}))
+        self.assertTrue(self.narrow({"type": "number"}, {"type": "number", "minimum": 0}))
+
+    def test_minimum_lowered_or_unchanged_is_not_narrowing(self):
+        self.assertEqual(self.narrow({"minimum": 2}, {"minimum": 1}), [])
+        self.assertEqual(self.narrow({"minimum": 2}, {"minimum": 2}), [])
+
+    def test_maximum_lowered_is_narrowing(self):
+        self.assertTrue(self.narrow({"maximum": 10}, {"maximum": 9}))
+        self.assertTrue(self.narrow({"type": "number"}, {"maximum": 9}))
+
+    def test_maximum_raised_is_not_narrowing(self):
+        self.assertEqual(self.narrow({"maximum": 10}, {"maximum": 11}), [])
+
+    def test_exclusive_bound_is_tighter_than_the_inclusive_bound_at_its_value(self):
+        self.assertTrue(self.narrow({"minimum": 5}, {"exclusiveMinimum": 5}))
+        self.assertTrue(self.narrow({"maximum": 5}, {"exclusiveMaximum": 5}))
+
+    def test_inclusive_bound_is_wider_than_the_exclusive_bound_at_its_value(self):
+        # x > 5 is narrower than x >= 5, so replacing the first with the second is not narrowing.
+        self.assertEqual(self.narrow({"exclusiveMinimum": 5}, {"minimum": 5}), [])
+        self.assertEqual(self.narrow({"exclusiveMaximum": 5}, {"maximum": 5}), [])
+
+    def test_the_tightest_of_two_bounds_is_the_one_compared(self):
+        # minimum 3 with exclusiveMinimum 1 is x >= 3, so it is no narrower than minimum 3.
+        self.assertEqual(self.narrow({"minimum": 3}, {"minimum": 3, "exclusiveMinimum": 1}), [])
+        self.assertTrue(self.narrow({"minimum": 3}, {"minimum": 1, "exclusiveMinimum": 3}))
+
+    def test_unique_items_added_is_narrowing(self):
+        self.assertTrue(self.narrow({"type": "array"}, {"type": "array", "uniqueItems": True}))
+
+    def test_unique_items_removed_or_unchanged_is_not_narrowing(self):
+        self.assertEqual(self.narrow({"uniqueItems": True}, {}), [])
+        self.assertEqual(self.narrow({"uniqueItems": True}, {"uniqueItems": True}), [])
+
     def test_annotations_are_the_subset_ignored_keywords(self):
         from gc_parse import _IGNORED_KEYWORDS
         self.assertEqual(gc_checks_v._ANNOTATIONS, _IGNORED_KEYWORDS)

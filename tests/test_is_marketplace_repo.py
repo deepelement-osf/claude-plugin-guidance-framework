@@ -65,7 +65,7 @@ def run_script(*args, cwd=None, env_extra=None):
     env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
     env.update(env_extra or {})
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, "-B", str(SCRIPT), *args],
         cwd=cwd,
         env=env,
         capture_output=True,

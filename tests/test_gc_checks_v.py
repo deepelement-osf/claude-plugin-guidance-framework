@@ -483,5 +483,98 @@ class SchemaNarrowingTests(unittest.TestCase):
         self.assertIn("n", reasons[0])
 
 
+# ---------------------------------------------------------------------------
+# Exported copy: the pre-commit hook runs the checks on an export of the index,
+# with --repo pointing at the real repository. V-bump and V-major must still run.
+# ---------------------------------------------------------------------------
+
+class ExportedCopyTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.plugins = {"acme-build": dict(BUILD_SPEC), "acme-deliver": dict(DELIVER_SPEC)}
+        self.repo = self.make("repo", self.plugins)
+        write_compiled(self.repo, compiled(self.repo))
+        git_release(self.repo, self.plugins)
+
+    def export(self, name):
+        """Stage the working tree, then export the index the way the hook does."""
+        git(self.repo, "add", "-A")
+        dest = self.base / name
+        git(self.repo, "checkout-index", "-a", "--prefix=" + str(dest) + os.sep)
+        return dest
+
+    def run_on_export(self, export):
+        marketplace = Marketplace.load(export)
+        ctx = Context(root=export, marketplace=marketplace, upstreams={}, previous_graph=None,
+                      options=Options(repo=str(self.repo)), guidance_version="test")
+        return gc_checks_v.run(ctx)
+
+    def test_export_without_change_has_no_v_findings(self):
+        findings = self.run_on_export(self.export("clean"))
+        self.assertEqual(of(findings, "V-bump"), [])
+        self.assertEqual(of(findings, "V-major"), [])
+
+    def test_v_bump_runs_on_export(self):
+        write(self.repo / "plugins" / "acme-build" / "skills" / "concept" / "SKILL.md",
+              "---\nname: build\ndescription: changed\n" + phase_graph() + "---\n\n# Changed\n")
+        found = of(self.run_on_export(self.export("bump")), "V-bump")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].file, "plugins/acme-build/.claude-plugin/plugin.json")
+
+    def test_v_major_runs_on_export(self):
+        os.remove(self.repo / "plugins" / "acme-deliver" / "skills" / "concept" / "SKILL.md")
+        found = of(self.run_on_export(self.export("major")), "V-major")
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].blocking)
+        self.assertIn("removes deliver@acme-core", found[0].message)
+
+
+# ---------------------------------------------------------------------------
+# A8 (invocation): the activation call, first and written as "if installed"
+# ---------------------------------------------------------------------------
+
+CALL = "guidance-activation-check:check-realization-config"
+
+
+def skill_text(body):
+    return ("---\nname: realize-markdown\ndescription: test realization\n"
+            "graph:\n  graphSpecVersion: \"1.0\"\n  runs: agent\n---\n\n" + body)
+
+
+class A8InvocationTests(Base):
+    def make_with(self, body):
+        return self.make("invocation", {"acme-build": dict(BUILD_SPEC, realizations={
+            "realize-markdown": skill_text(body)})})
+
+    def test_block_when_call_is_missing(self):
+        found = of(run_v(self.make_with("# Markdown\n\nWrites the file.\n")), "A8")
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].blocking)
+        self.assertEqual(found[0].file, "plugins/acme-build/skills/realize-markdown/SKILL.md")
+
+    def test_pass_when_call_is_first_and_if_installed(self):
+        body = (f"# Markdown\n\nCall `{CALL}`, if installed, before any other step.\n\n"
+                "Writes the file.\n")
+        self.assertEqual(of(run_v(self.make_with(body)), "A8"), [])
+
+    def test_warn_when_call_is_not_first(self):
+        body = f"# Markdown\n\nWrites the file.\n\nCall `{CALL}`, if installed.\n"
+        found = of(run_v(self.make_with(body)), "A8")
+        self.assertEqual(len(found), 1)
+        self.assertFalse(found[0].blocking)
+        self.assertIn("not the first instruction", found[0].message)
+
+    def test_warn_when_call_is_not_written_as_if_installed(self):
+        body = f"# Markdown\n\nCall `{CALL}` when it is installed.\n\nWrites the file.\n"
+        found = of(run_v(self.make_with(body)), "A8")
+        self.assertEqual(len(found), 1)
+        self.assertFalse(found[0].blocking)
+        self.assertIn("if installed", found[0].message)
+
+    def test_first_instruction_skips_headings_and_blank_lines(self):
+        self.assertEqual(gc_checks_v._first_instruction("\n# Title\n\n  Do it.\n"), "Do it.")
+        self.assertIsNone(gc_checks_v._first_instruction("# Only a heading\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

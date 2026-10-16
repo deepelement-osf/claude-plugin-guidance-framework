@@ -1,0 +1,8 @@
+{
+  "name": "acme-core-deliver",
+  "version": "1.0.0",
+  "description": "The deliver phase: publishes a deliverable.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

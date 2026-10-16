@@ -97,9 +97,11 @@ def make_marketplace(root):
     return repo
 
 
-def run_hook(command, cwd, project_dir=None):
-    """Run the hook as Claude Code does: the Bash input on stdin."""
-    env = clean_env({"CLAUDE_PROJECT_DIR": str(project_dir)} if project_dir else None)
+def run_hook(command, cwd, project_dir=None, extra_env=None):
+    """Run the hook as Claude Code does: the Bash input on stdin. extra_env is added to its environment."""
+    extra = {"CLAUDE_PROJECT_DIR": str(project_dir)} if project_dir else {}
+    extra.update(extra_env or {})
+    env = clean_env(extra)
     payload = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
@@ -107,7 +109,7 @@ def run_hook(command, cwd, project_dir=None):
         "cwd": str(cwd),
     }
     return subprocess.run(
-        [sys.executable, str(HOOK)],
+        [sys.executable, "-B", str(HOOK)],
         input=json.dumps(payload),
         cwd=str(cwd),
         env=env,
@@ -412,6 +414,118 @@ class HooksJsonTests(unittest.TestCase):
             'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pre_commit_hook.py"',
         )
         self.assertEqual(hook_entry["timeout"], 300)
+
+
+def write_plugin_marketplace(root, name, plugins):
+    """A marketplace with plugins: dicts of name, version and optional deps (manifest dependency dicts)."""
+    entries = []
+    for spec in plugins:
+        entry = {"name": spec["name"], "source": f"./plugins/{spec['name']}"}
+        if spec.get("deps"):
+            entry["dependencies"] = spec["deps"]
+        entries.append(entry)
+        plugin_json = root / "plugins" / spec["name"] / ".claude-plugin" / "plugin.json"
+        plugin_json.parent.mkdir(parents=True, exist_ok=True)
+        plugin_json.write_text(json.dumps({"name": spec["name"], "version": spec["version"]}), encoding="utf-8")
+    manifest = root / ".claude-plugin" / "marketplace.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps({"name": name, "owner": {"name": "Test"}, "plugins": entries}), encoding="utf-8")
+
+
+class UpstreamCommitTests(unittest.TestCase):
+    """A commit in a marketplace that depends on an upstream, through the real hook and checker.
+
+    The upstream is a git repository named acme-core, with the tag acme-phase--v1.0.0.
+    The downstream compiles against a copy of it, given with --upstreams, and records
+    that version. Its settings register acme-core by git url. Nothing else holds the
+    upstream, so the hook must fetch the recorded tag from that url, and the check
+    must pass on it. The fake claude makes the official validation pass.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="pre-commit-upstream-")
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name).resolve()
+        fake_bin = self.tmp / "bin"
+        fake_bin.mkdir()
+        claude = fake_bin / "claude"
+        claude.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        claude.chmod(0o755)
+        self.data = self.tmp / "data"
+        self.env = {
+            "HOME": str(self.tmp / "home"),
+            "CLAUDE_PLUGIN_DATA": str(self.data),
+            "GUIDANCE_CHECK_MARKETPLACES_DIR": str(self.tmp / "registry"),
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+        }
+        self.core = self.tmp / "upstreams" / "acme-core"
+        self.repo = self.tmp / "acme-web"
+
+        write_plugin_marketplace(self.core, "acme-core", [{"name": "acme-phase", "version": "1.0.0"}])
+        init_repo(self.core)
+        git(self.core, "add", "-A")
+        git(self.core, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "core 1.0.0")
+        git(self.core, "tag", "acme-phase--v1.0.0")
+
+        write_plugin_marketplace(self.repo, "acme-web", [{
+            "name": "web-app", "version": "1.0.0",
+            "deps": [{"name": "acme-phase", "marketplace": "acme-core", "version": "^1.0.0"}],
+        }])
+        manifest = self.repo / ".claude-plugin" / "marketplace.json"
+        declared = json.loads(manifest.read_text(encoding="utf-8"))
+        declared["metadata"] = {"pluginPrefix": "web"}
+        declared["allowCrossMarketplaceDependenciesOn"] = ["acme-core"]
+        manifest.write_text(json.dumps(declared), encoding="utf-8")
+        (self.repo / ".claude").mkdir()
+        (self.repo / ".claude" / "settings.json").write_text(json.dumps({
+            "extraKnownMarketplaces": {"acme-core": {"source": {"source": "git", "url": str(self.core)}}},
+        }), encoding="utf-8")
+        init_repo(self.repo)
+        (self.repo / "LICENSE").write_text("Synthetic license text for a unit test.\n", encoding="utf-8")
+        (self.repo / "README.md").write_text(
+            "# acme-web\n\n"
+            "Synthetic marketplace for the upstream commit tests.\n\n"
+            "## Required marketplaces\n\n"
+            "Register these in your consuming workspace before installing plugins from this\n"
+            "marketplace. Settings are not transitive; nothing registers them for you. Register\n"
+            "each marketplace under exactly its name below.\n\n"
+            "| Marketplace name | Registration source | Plugins used (range) | Why |\n"
+            "|---|---|---|---|\n"
+            "| `acme-core` | `acme/acme-core` (git) | `acme-phase` `^1.0.0` | The web app builds on the core phase |\n\n"
+            "## License\n\n"
+            "It is licensed under the terms in the LICENSE file.\n",
+            encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "marketplace")
+
+        # Compile against the upstream copy, so the graph records acme-phase 1.0.0.
+        compile_run = subprocess.run(
+            [sys.executable, "-B", str(hook.CHECKER), str(self.repo), "--compile", "--no-official", "--no-pin",
+             "--upstreams", str(self.tmp / "upstreams")],
+            cwd=str(self.repo), env=dict(clean_env(self.env), **GIT_IDENTITY),
+            capture_output=True, text=True, check=False)
+        self.assertEqual(compile_run.returncode, 0, compile_run.stdout + compile_run.stderr)
+        git(self.repo, "add", "-A")
+        git(self.repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "compiled")
+        (self.repo / "NOTES.md").write_text("notes\n", encoding="utf-8")
+        git(self.repo, "add", "NOTES.md")
+
+    def test_commit_passes_and_the_recorded_upstream_is_fetched_into_the_cache(self):
+        result = run_hook("git commit -m notes", self.repo, project_dir=self.repo, extra_env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "", result.stdout)
+        cached = self.data / "upstreams" / "acme-core" / ".claude-plugin" / "marketplace.json"
+        self.assertTrue(cached.is_file(), "the hook must have fetched acme-core into the cache")
+
+    def test_commit_is_denied_when_the_upstream_cannot_be_found(self):
+        shutil.rmtree(self.core)
+        result = run_hook("git commit -m notes", self.repo, project_dir=self.repo, extra_env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reply = json.loads(result.stdout)
+        decision = reply["hookSpecificOutput"]
+        self.assertEqual(decision["permissionDecision"], "deny")
+        self.assertIn("X-resolve", decision["permissionDecisionReason"])
+        self.assertIn("acme-core", decision["permissionDecisionReason"])
 
 
 if __name__ == "__main__":

@@ -299,7 +299,7 @@ def run_checker(export_dir, repo):
     """Run guidance_check.py on export_dir. Return (exit, findings, error)."""
     try:
         result = subprocess.run(
-            [sys.executable, CHECKER, export_dir, "--json", "--repo", repo],
+            [sys.executable, "-B", CHECKER, export_dir, "--json", "--repo", repo],
             cwd=repo,
             capture_output=True,
             text=True,

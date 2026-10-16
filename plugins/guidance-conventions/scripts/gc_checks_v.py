@@ -50,6 +50,7 @@ guidance_marketplace_name() -> str
 
 import json
 import os
+import posixpath
 import re
 import subprocess
 from pathlib import Path
@@ -117,6 +118,23 @@ def _repo_relpath(path: Path, repo: Path) -> Optional[str]:
     if rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel):
         return None
     return rel.replace(os.sep, "/")
+
+
+def _repo_path(ctx: Context, path: Path) -> Optional[str]:
+    """POSIX path, relative to the repository top, of a path under ctx.root. None when it is not under ctx.root.
+
+    ctx.root is the marketplace as the check sees it. It is the repository or a directory inside it, so
+    its offset in the repository is taken from ctx.repo. The pre-commit hook instead passes an export of
+    the index as ctx.root and the real repository as --repo. An export mirrors the repository top, so its
+    offset is ".". Without this, the export would sit outside ctx.repo and V-bump and V-major would skip.
+    """
+    within = _repo_relpath(path, ctx.root)
+    if within is None:
+        return None
+    offset = _repo_relpath(ctx.root, ctx.repo)
+    if offset is None:
+        offset = "."
+    return posixpath.normpath(posixpath.join(offset, within))
 
 
 def _parse_version(text: Any) -> Optional[Tuple[int, int, int, bool, str]]:
@@ -402,10 +420,10 @@ def _git_baseline(ctx: Context, name: str, cur_version: Optional[str],
     if not eligible:
         return None
     _, version, tag = eligible[-1]
-    rel = _repo_relpath(ctx.root, repo)
+    rel = _repo_path(ctx, ctx.root)
     if rel is None:
         return None
-    path = "./" + os.path.normpath(os.path.join(rel, COMPILED_FILE)).replace(os.sep, "/")
+    path = "./" + posixpath.normpath(posixpath.join(rel, COMPILED_FILE))
     text = _git(repo, "show", f"refs/tags/{tag}:{path}")
     if text is None:
         return None
@@ -507,7 +525,7 @@ def _v_bump(ctx: Context, findings: List[Finding]) -> None:
         released = [t for t in _release_tags(repo, name) if t[1] == plugin.version]
         if not released:
             continue
-        pathspec = _repo_relpath(plugin.dir, repo)
+        pathspec = _repo_path(ctx, plugin.dir) if plugin.dir is not None else None
         if pathspec is None:
             continue
         tag = released[0][2]
@@ -562,6 +580,49 @@ def _a8(ctx: Context, findings: List[Finding]) -> None:
                         "and a realization calls the activation check only if it is installed"))
 
 
+ACTIVATION_CALL = "guidance-activation-check:check-realization-config"
+_IF_INSTALLED = re.compile(r"\bif\s+installed\b", re.IGNORECASE)
+
+
+def _first_instruction(body: str) -> Optional[str]:
+    """The first non-blank line of a SKILL.md body that is not a markdown heading, stripped, or None."""
+    for line in body.splitlines():
+        text = line.strip()
+        if text and not text.startswith("#"):
+            return text
+    return None
+
+
+def _a8_invocation(ctx: Context, findings: List[Finding]) -> None:
+    """Each realization calls the activation check as its first instruction, written as 'if installed'.
+
+    The call is found by its skill name, ACTIVATION_CALL. "First instruction" is the first
+    non-blank line of the body that is not a heading. The check is mechanical for both rows:
+    missing entirely blocks; present but not first, or not written as "if installed", warns.
+    """
+    for realization in ctx.marketplace.realizations:
+        rel = realization.skill_relpath
+        body = realization.skill.body if realization.skill is not None else ""
+        if ACTIVATION_CALL not in body:
+            findings.append(Finding(
+                "A8", "block", rel,
+                f"realization {realization.name} does not call the activation check {ACTIVATION_CALL}",
+                "add a call to the activation check, if installed, as the first instruction of the SKILL.md, "
+                "and keep an inline check for when it is not installed"))
+            continue
+        first = _first_instruction(body)
+        if first is None or ACTIVATION_CALL not in first:
+            findings.append(Finding(
+                "A8", "warn", rel,
+                f"the activation check call in realization {realization.name} is not the first instruction",
+                "move the call to the first instruction, before any operational step"))
+        elif _IF_INSTALLED.search(first) is None:
+            findings.append(Finding(
+                "A8", "warn", rel,
+                f"the activation check call in realization {realization.name} is not written as \"if installed\"",
+                "write the call as: call it if installed"))
+
+
 def _ad3(ctx: Context, findings: List[Finding]) -> None:
     for realization in ctx.marketplace.realizations:
         if realization.realizes is None:
@@ -580,6 +641,7 @@ def _ad3(ctx: Context, findings: List[Finding]) -> None:
 def run(ctx: Context) -> List[Finding]:
     findings: List[Finding] = []
     _a8(ctx, findings)
+    _a8_invocation(ctx, findings)
     _ad3(ctx, findings)
     _v_bump(ctx, findings)
     _v_major(ctx, findings)

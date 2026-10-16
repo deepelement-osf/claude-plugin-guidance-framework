@@ -1,0 +1,28 @@
+{
+  "name": "acme-web",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Web refinements built on the acme-core marketplace.",
+  "metadata": {
+    "pluginPrefix": "acme-web"
+  },
+  "allowCrossMarketplaceDependenciesOn": [
+    "acme-core"
+  ],
+  "plugins": [
+    {
+      "name": "acme-web-nextjs-build",
+      "source": "./plugins/acme-web-nextjs-build",
+      "description": "Refines the build phase for Next.js projects.",
+      "dependencies": [
+        {
+          "name": "acme-core-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
+      ]
+    }
+  ]
+}

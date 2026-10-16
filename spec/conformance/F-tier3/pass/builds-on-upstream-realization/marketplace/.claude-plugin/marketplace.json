@@ -1,0 +1,28 @@
+{
+  "name": "acme-web",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Web refinements and an observer built on the acme-core marketplace.",
+  "metadata": {
+    "pluginPrefix": "web"
+  },
+  "allowCrossMarketplaceDependenciesOn": [
+    "acme-core"
+  ],
+  "plugins": [
+    {
+      "name": "web-realize-build",
+      "source": "./plugins/web-realize-build",
+      "description": "Script realization of the build phase, offered to workspaces that select it.",
+      "dependencies": [
+        {
+          "name": "acme-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
+      ]
+    }
+  ]
+}

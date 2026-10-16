@@ -1,0 +1,56 @@
+{
+  "capabilities": [],
+  "graphHash": "sha256:8edd7816b01bf0485ddff4c81e1a332b4fe0f1664789fc583b5d9786490ea41b",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-web",
+  "nodes": [
+    {
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "result": {
+          "properties": {
+            "notes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "notes"
+          ],
+          "type": "object"
+        },
+        "selection": "one"
+      },
+      "id": "nextjs-build@acme-web",
+      "interaction": "autonomous",
+      "plugin": "acme-web-nextjs-build",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "next-build",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "refines": "build@acme-core",
+      "role": "refinement",
+      "version": "1.0.0"
+    }
+  ],
+  "upstreams": [
+    {
+      "graphHash": "sha256:c80c93cb99d7a4d49b3520aefd875753c6c3e916d63bbc2046aa423801bf08f1",
+      "marketplace": "acme-core",
+      "plugins": {
+        "acme-core-build": "1.0.0"
+      }
+    }
+  ]
+}

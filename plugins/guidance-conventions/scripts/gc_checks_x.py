@@ -54,7 +54,9 @@ from gc_model import (
     Marketplace,
     Realization,
     declared_references,
+    dependency_closure,
     qualifier,
+    realization_in_chain,
 )
 
 DEPTH_LIMIT = 4
@@ -325,23 +327,7 @@ class _Run:
         self.findings.append(Finding(check, severity, file, message, fix))
 
     def _closure(self, start: Marketplace) -> Set[str]:
-        names: Set[str] = set()
-        seen = {start.name}
-        stack = [start]
-        while stack:
-            current = stack.pop()
-            for plugin in current.plugins.values():
-                for dep in plugin.dependencies:
-                    target = dep.get("marketplace")
-                    if not target:
-                        continue
-                    names.add(target)
-                    if target not in seen:
-                        seen.add(target)
-                        upstream = self.ups.get(target)
-                        if upstream is not None:
-                            stack.append(upstream)
-        return names
+        return dependency_closure(start, self.ups)
 
     def chain(self) -> List[Marketplace]:
         found = [self.m]
@@ -429,11 +415,6 @@ class _Run:
             self.add("X-resolve", "block", file, f"{field} names {ref}, and {q} is not loaded for this run",
                      f"check {q} out beside this marketplace and pass its directory with --upstreams")
             return None
-        if field in PLACED_FIELDS or field == "uses":
-            problem = self._placement_problem(q, field)
-            if problem is not None:
-                self.add("X-placement", "block", file, f"{field} names {ref}: {problem}",
-                         "point the reference at this marketplace or at an ancestor it depends on")
         status, concept = self._lookup(marketplace, name)
         if status == "missing":
             if ref in self.removed_names:
@@ -444,6 +425,11 @@ class _Run:
                 self.add("X-resolve", "block", file, f"{field} names {ref}, which does not resolve to a concept",
                          f"name a concept that {q} defines, or an alias of one")
             return None
+        if field in PLACED_FIELDS or field == "uses":
+            problem = self._placement_problem(q, field)
+            if problem is not None:
+                self.add("X-placement", "block", file, f"{field} names {ref}: {problem}",
+                         "point the reference at this marketplace or at an ancestor it depends on")
         if status == "alias":
             self.add("X-lifecycle", "warn", file,
                      f"{field} names {ref}, an alias of {concept.id}",
@@ -514,10 +500,8 @@ class _Run:
                 self._builds_on(realization, builds_on)
 
     def _builds_on(self, realization: Realization, name: str) -> None:
-        for marketplace in self.chain():
-            for other in marketplace.realizations:
-                if other.name == name and other.concept_ref == realization.concept_ref:
-                    return
+        if realization_in_chain(name, realization.concept_ref, self.m, self.ups, exclude=realization):
+            return
         self.add("X-resolve", "block", realization.skill_relpath,
                  f"builds_on names {name}, which is no realization of {realization.concept_ref} "
                  f"in this marketplace or an ancestor",

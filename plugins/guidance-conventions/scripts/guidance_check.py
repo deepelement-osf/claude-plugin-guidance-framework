@@ -172,13 +172,63 @@ def load_previous(options: Options) -> Optional[dict]:
 OFFICIAL_TIMEOUT_SECONDS = 60
 
 
+def _validator_entries(node) -> List[Tuple[str, str, str]]:
+    """(severity, where, message) for every error and warning in a validator report, at any depth.
+
+    The report lists its problems under "errors" and "warnings" keys, each entry an object with a
+    "message" and, when the validator names one, a "path". Anything else in the report is skipped.
+    """
+    entries: List[Tuple[str, str, str]] = []
+    if isinstance(node, dict):
+        for key in ("errors", "warnings"):
+            items = node.get(key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("message"), str):
+                    where = item.get("path") if isinstance(item.get("path"), str) else ""
+                    entries.append((key[:-1], where, item["message"]))
+        for value in node.values():
+            entries.extend(_validator_entries(value))
+    elif isinstance(node, list):
+        for value in node:
+            entries.extend(_validator_entries(value))
+    return entries
+
+
+def _official_detail(result, root) -> str:
+    """What the validator reported as its failure, one clause per error or warning.
+
+    The validator is run with --json, so the report names each problem. When the output is not
+    such a report, or names no problem, every non-empty line of its output is used instead, so
+    nothing it wrote is dropped. The root directory is written as "." so that a temporary export
+    directory does not appear in the finding.
+    """
+    root_text = str(root)
+    clauses: List[str] = []
+    try:
+        report = json.loads(result.stdout or "")
+    except ValueError:
+        report = None
+    if report is not None:
+        for severity, where, message in _validator_entries(report):
+            text = f"{severity} at {where}: {message}" if where else f"{severity}: {message}"
+            clauses.append(text)
+    if not clauses:
+        clauses = [ln for ln in f"{result.stdout or ''}\n{result.stderr or ''}".splitlines() if ln.strip()]
+    if not clauses:
+        clauses = [f"exit {result.returncode}"]
+    return "; ".join(" ".join(clause.replace(root_text, ".").split()) for clause in clauses)
+
+
 def official_findings(root, options: Options, findings: List[Finding]) -> None:
     """Run the official validation, which is the Claude Code plugin validator, with --strict.
 
     The validator is started with a list of arguments, never through a shell, and with
     no standard input, so it cannot wait for an interactive session. A missing binary,
     a start failure or a run longer than OFFICIAL_TIMEOUT_SECONDS is a could-not-run
-    result (CannotRun, exit 2).
+    result (CannotRun, exit 2). A failure is a block whose message names every error and
+    warning the validator reported, so the finding says what to fix.
     """
     if options.no_official:
         return
@@ -187,7 +237,7 @@ def official_findings(root, options: Options, findings: List[Finding]) -> None:
         raise CannotRun("F-official", "the claude command is not on PATH",
                         "install Claude Code, or pass --no-official to skip the official validation")
     try:
-        result = subprocess.run([claude, "plugin", "validate", "--strict", str(root)],
+        result = subprocess.run([claude, "plugin", "validate", "--json", "--strict", str(root)],
                                 capture_output=True, text=True, stdin=subprocess.DEVNULL,
                                 timeout=OFFICIAL_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired:
@@ -198,12 +248,10 @@ def official_findings(root, options: Options, findings: List[Finding]) -> None:
         raise CannotRun("F-official", f"claude plugin validate cannot be started: {exc}",
                         "check the Claude Code installation") from None
     if result.returncode != 0:
-        lines = [ln for ln in (result.stderr or result.stdout or "").splitlines() if ln.strip()]
-        detail = lines[-1] if lines else f"exit {result.returncode}"
         findings.append(Finding(
             "F-official", "block", None,
-            f"claude plugin validate --strict reports a failure: {detail}",
-            f"run claude plugin validate --strict {root} and fix what it reports"))
+            f"claude plugin validate --strict reports a failure: {_official_detail(result, root)}",
+            "run claude plugin validate --strict on this marketplace repository and fix what it reports"))
 
 
 def run_check_modules(ctx: Context) -> List[Finding]:

@@ -303,6 +303,21 @@ class SchemaSubsetTests(unittest.TestCase):
     def test_annotation_keywords_are_ignored(self):
         self.assertValid({}, {"title": "t", "description": "d", "$schema": "x", "type": "object"})
 
+    def test_ref_only_resolves_into_defs(self):
+        schema = {"$defs": {"id": {"type": "string"}},
+                  "type": "object", "properties": {"x": {"$ref": "#/$defs/id"}}}
+        self.assertValid({"x": "a"}, schema)
+        with self.assertRaises(SchemaSubsetError):
+            validate_json_schema({"x": "a"}, {"$ref": "#/definitions/id",
+                                              "definitions": {"id": {"type": "string"}}})
+        with self.assertRaises(SchemaSubsetError):
+            validate_json_schema({"x": "a"}, {"$defs": {"id": {"type": "string"}},
+                                              "$ref": "#/definitions/id"})
+
+    def test_id_is_outside_the_subset(self):
+        with self.assertRaises(SchemaSubsetError):
+            validate_json_schema("x", {"$id": "https://example.invalid/x.json", "type": "string"})
+
 
 class ModelTests(unittest.TestCase):
     def test_marketplace_without_manifest_is_refused(self):
@@ -798,14 +813,59 @@ class OfficialTests(unittest.TestCase):
         self.fake_claude(f'printf "%s\\n" "$@" > "{record}"\nexit 0\n')
         self.assertEqual(self.run_official(), [])
         self.assertEqual(record.read_text(encoding="utf-8").splitlines(),
-                         ["plugin", "validate", "--strict", str(self.root)])
+                         ["plugin", "validate", "--json", "--strict", str(self.root)])
 
-    def test_validator_failure_is_a_block_that_quotes_its_last_line(self):
+    def test_validator_failure_is_a_block_that_quotes_its_output(self):
         self.fake_claude('echo "first line" >&2\necho "schema is wrong" >&2\nexit 1\n')
         findings = self.run_official()
         self.assertEqual([(f.check, f.severity) for f in findings], [("F-official", "block")])
         self.assertIn("--strict", findings[0].message)
         self.assertIn("schema is wrong", findings[0].message)
+        self.assertIn("first line", findings[0].message)
+
+    def write_report(self, report) -> Path:
+        path = self.tmp / "report.json"
+        path.write_text(json.dumps(report), encoding="utf-8")
+        return path
+
+    def print_report(self, report: Path) -> str:
+        """Shell body that prints a file with builtins only: the test PATH holds just the fake claude."""
+        return (f'while IFS= read -r line || [ -n "$line" ]; do printf \'%s\\n\' "$line"; done < "{report}"\n')
+
+    def test_validator_json_report_names_each_error_and_warning(self):
+        report = self.write_report({
+            "success": False, "strict": True,
+            "manifest": {
+                "errors": [{"path": "plugins[0] plugin.json → json", "message": "Invalid JSON syntax: x"}],
+                "warnings": [{"path": "metadata.pluginPrefix",
+                              "message": "Unknown field 'pluginPrefix'. Claude Code ignores it at load time."}],
+            },
+            "contents": [], "advice": [],
+        })
+        self.fake_claude(self.print_report(report) + "exit 1\n")
+        findings = self.run_official()
+        self.assertEqual([(f.check, f.severity) for f in findings], [("F-official", "block")])
+        message = findings[0].message
+        self.assertIn("error at plugins[0] plugin.json → json: Invalid JSON syntax: x", message)
+        self.assertIn("warning at metadata.pluginPrefix: Unknown field 'pluginPrefix'", message)
+        self.assertNotIn("Validation failed", message)
+
+    def test_temporary_root_is_not_named_in_the_finding(self):
+        root = str(self.root)
+        report = self.write_report({"manifest": {"errors": [
+            {"path": f"{root}/plugins/acme/plugin.json", "message": f"bad file {root}/x"}]}})
+        self.fake_claude(self.print_report(report) + "exit 1\n")
+        findings = self.run_official()
+        self.assertEqual(len(findings), 1)
+        self.assertNotIn(root, findings[0].message)
+        self.assertNotIn(root, findings[0].fix)
+        self.assertIn("error at ./plugins/acme/plugin.json: bad file ./x", findings[0].message)
+
+    def test_validator_output_that_is_not_a_report_keeps_every_line(self):
+        self.fake_claude('echo "first problem"\necho "second problem" >&2\nexit 1\n')
+        findings = self.run_official()
+        self.assertIn("first problem", findings[0].message)
+        self.assertIn("second problem", findings[0].message)
 
     def test_validator_that_does_not_finish_is_a_could_not_run_after_the_bound(self):
         self.fake_claude("exec /bin/sleep 30\n")

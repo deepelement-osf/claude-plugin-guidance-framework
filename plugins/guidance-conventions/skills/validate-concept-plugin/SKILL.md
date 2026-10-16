@@ -27,8 +27,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/guidance_check.py" <repo root>
 ```
 
 - The script runs every check that
-  [spec/checks.md](../../../../spec/checks.md) marks mechanical, with its check
-  id, severity and fix. It also classifies the marketplace and finds the concept
+  [spec/checks.md](../../../../spec/checks.md) marks mechanical with scope
+  `marketplace` or `both`, with its check id, severity and fix. It also classifies the marketplace and finds the concept
   plugins. Take its result; do not re-derive it.
 - Report the script's findings as it prints them, grouped by check id, with each
   file and fix. Do not re-run a mechanical check by hand.
@@ -132,7 +132,8 @@ that structure (see set E).
      finding.
    - **Zero realizations, but `skills/realization-contract/` exists**: unusual,
      because a contract is normally added with the first realization. The script
-     reports this as non-blocking.
+     reports this as a warning (A4), which is expected while a contract is
+     written ahead of its first realization.
    - **One or more realizations**: all checks 2 to 9 apply, and
      `skills/realization-contract/` is required.
 
@@ -142,8 +143,8 @@ that structure (see set E).
    Not applicable to a concept-only plugin.
 
 6. **Superset `schema.json` for each realization (A6).** The script checks that
-   each `skills/realize-<provider>/schema.json` exists, parses, and is a superset
-   of Tier 2's `schema.json`. It also checks that each property has a
+   each `skills/realize-<provider>/schema.json` exists, parses, and keeps every Tier 2
+   required field required, with the same type and meaning. It also checks that each property has a
    description. Judgement:
       - **Optional defaults.** An optional field with a sensible default has one.
      Flag an optional field that has none.
@@ -183,7 +184,8 @@ that structure (see set E).
      unconditional call would fail there. Inside a marketplace repository the
      check validates the realization against its contract. In a consuming
      workspace it does nothing, so the call is harmless there.
-   - *No guidance dependency.* No plugin in the marketplace declares a
+   - *No guidance dependency.* The script runs this part on every marketplace,
+     realization marketplaces included. No plugin in the marketplace declares a
      guidance plugin as a dependency, and the root does not allowlist the
      guidance marketplace. A guidance plugin is
      `guidance-conventions` or `guidance-activation-check`, from any marketplace,
@@ -257,7 +259,7 @@ marketplace's Tier 2 through the upstream resolution in Set X of
 
 Set D does not apply to a realization marketplace, because it holds no Tier 1
 or Tier 2. The other judgement parts of this skill apply to realization plugins
-as the catalog states. In particular, A6's knob, A7 and A8 apply.
+as the catalog states. In particular, A6's knob and A7 apply. The script checks A8 on every marketplace.
 
 ## Reporting
 

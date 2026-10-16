@@ -3,8 +3,9 @@
 This directory states the concept graph standard in a form a program can
 read. The rules are written once, here and in the check catalog. The
 compliance script in the `guidance-conventions` plugin implements the
-mechanical checks for marketplace repositories. Any implementation of the
-workspace-side checks may run the conformance cases described below.
+mechanical checks whose scope is `marketplace` or `both`, and runs them in a
+marketplace repository. Any implementation of the workspace-side checks may
+run the conformance cases described below.
 
 The concept graph standard is experimental. It stays marked experimental
 until at least two marketplaces other than the one that defines the root
@@ -146,7 +147,11 @@ A case contains:
 - `previous/concept-graph.json`: optional. The compiled graph at the
   previous release tags. Version checks use it.
 - `expect.json`: the expected result, `{"exit": 0|1|2, "checks": ["<id>", ...]}`,
-  which must validate against `schemas/conformance-expect.schema.json`.
+  which must validate against `schemas/conformance-expect.schema.json`. Two
+  optional keys: `args` replaces the default flags of the script run, and must
+  still include `--json`; `warnings` lists the check ids that must appear as
+  warn findings. A pass case also fails on a warn with its own id unless
+  `warnings` lists it. `tests/run_conformance.py` applies both.
 
 The expectation is:
 

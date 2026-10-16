@@ -1,6 +1,6 @@
 # Conformance cases
 
-Each case is a directory `<check-id>/{pass,fail}/<case>/` holding `marketplace/`, optional `upstreams/<name>/`, optional `previous/concept-graph.json`, and `expect.json` (`{"exit": n, "checks": [...]}`).
+Each case is a directory `<check-id>/{pass,fail}/<case>/` holding `marketplace/`, optional `upstreams/<name>/`, optional `previous/concept-graph.json`, and `expect.json` (`{"exit": n, "checks": [...]}`). The optional `args` key of `expect.json` replaces the default flags of the script run (it must include `--json`), and the optional `warnings` key lists the check ids that must appear as warn findings. The runner applies both, and the cases `PIN/pass/pin-matches`, `PIN/fail/pin-mismatch` and `M2/pass/plugin-outside-prefix` use them.
 
 Every case is one change from a hand-written passing base: an upstream marketplace `acme-core` and a downstream marketplace `acme-web`. Source edits in fail cases are not recompiled, so F-compiled can also fire where it is not the id under test; `expect.json` lists only the id under test.
 
@@ -8,8 +8,8 @@ Every case is one change from a hand-written passing base: an upstream marketpla
 
 The table lists each check id that has at least one case, with its case names.
 An id that has no row has no case yet. The workspace-side rows (B and C in
-[checks.md](../checks.md)) and the realization-marketplace rows (E) have no
-case here. Update the table in the same change that adds or removes a case.
+[checks.md](../checks.md)) have no case here. Update the table in the same
+change that adds or removes a case.
 
 | Id | Pass cases | Fail cases |
 |---|---|---|
@@ -32,7 +32,7 @@ case here. Update the table in the same change that adds or removes a case.
 | F-capability | | `role-less-graph-participation` |
 | F-compiled | `description-only-change` | `stale-after-source-edit` |
 | F-files | `capability-without-realization` | `missing-graph-contract` |
-| F-schema | | `unknown-graph-field` |
+| F-schema | | `unknown-graph-field`, `bad-plugin-prefix`, `graph-spec-version-out-of-range` |
 | F-selection | | `phase-contract-many` |
 | F-tier2 | | `refinement-contract-without-result` |
 | F-tier3 | `builds-on-upstream-realization` | `builds-on-missing` |
@@ -68,11 +68,13 @@ case here. Update the table in the same change that adds or removes a case.
 - `F-files/pass/capability-without-realization`: a capability with no realization directory is valid.
 - `F-files/fail/missing-graph-contract`: a graph node has no graph-contract.json.
 - `F-schema/fail/unknown-graph-field`: the graph frontmatter has a field the spec does not define.
+- `F-schema/fail/bad-plugin-prefix`: the marketplace's `metadata.pluginPrefix` is malformed, so it is a block.
+- `F-schema/fail/graph-spec-version-out-of-range`: a file's `graphSpecVersion` is outside the range the script supports, so the run exits `2`.
 - `F-selection/fail/phase-contract-many`: a phase contract uses selection "many".
 - `F-tier2/fail/refinement-contract-without-result`: a refinement contract has no result shape.
 - `F-tier3/pass/builds-on-upstream-realization`: a realization builds on a realization of the same concept in an upstream.
 - `F-tier3/fail/builds-on-missing`: a realization's `builds_on` names a realization that does not exist.
-- `M1/pass/present-plugin-directory`: each relative-path plugin entry resolves to a directory under `plugins/`.
+- `M1/pass/present-plugin-directory`: each relative-path plugin entry resolves to a directory inside the repository.
 - `M1/fail/plugin-directory-missing`: a relative-path plugin entry resolves to no directory.
 - `M3/pass/license-and-readme-reference`: `README.md` and `LICENSE` exist at the root, and the README refers to the license.
 - `M3/fail/license-file-missing`: the repository root has no `LICENSE` file.

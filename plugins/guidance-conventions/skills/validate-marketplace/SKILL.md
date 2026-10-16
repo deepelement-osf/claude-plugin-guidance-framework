@@ -32,8 +32,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/guidance_check.py" <repo root>
 ```
 
 - The script runs every check that
-  [spec/checks.md](../../../../spec/checks.md) marks mechanical, with its
-  check id, severity and fix. It also decides which check sets apply. Take its
+  [spec/checks.md](../../../../spec/checks.md) marks mechanical with scope
+  `marketplace` or `both`, with its check id, severity and fix. It also decides which check sets apply. Take its
   applicability from its output; do not re-derive it.
 - Report the script's findings as it prints them, grouped by check id, with
   each file and fix. Do not re-run a mechanical check by hand.
@@ -80,16 +80,18 @@ id in [spec/checks.md](../../../../spec/checks.md).
 
 - **M2, plugin naming prefix.** Every plugin name starts with the
   marketplace's prefix and a hyphen. The prefix is `metadata.pluginPrefix` in
-  `.claude-plugin/marketplace.json`, or, when that key is absent, the first
+  `.claude-plugin/marketplace.json`, written without a trailing hyphen
+  (`acme-aws`, not `acme-aws-`), or, when that key is absent, the first
   hyphen-delimited segment of the marketplace `name`. A plugin that does not
   match is named by its full plugin name as its concept name. The `guidance-`
-  prefix is reserved for the guidance marketplace.
+  prefix is reserved for the guidance marketplace. A malformed `pluginPrefix`
+  is an F-schema block.
 - **U1 to U4, upstream declarations (set U).** Cross-marketplace dependencies
   sit in the marketplace entry, use the object form with a version, and are
   allowed by the root allowlist. The README has the `## Required marketplaces`
   section, and its rows match the entries. A dependency on the guidance
-  marketplace is refused by A8 in `validate-concept-plugin`, and set U does not
-  repeat that finding.
+  marketplace is refused by A8, which the script runs on every marketplace, and
+  set U does not repeat that finding.
 - **AD1 and AD2, additive-only chains (set AD).** Concept names are unique, and
   nothing in this marketplace equals a plugin name, concept name or prefix of an
   upstream marketplace that the run resolved. An upstream that cannot be resolved
@@ -105,8 +107,10 @@ id in [spec/checks.md](../../../../spec/checks.md).
   - A `realizes` block whose concept no visible marketplace defines is a
     reference that does not resolve. The script reports it under the reference
     checks.
-  - A plugin that has realizations and no `skills/concept/` is still reported,
-    with the message "belongs in a realization marketplace"
+  - A plugin with a `realize-*` skill that has no `realizes` block, or with
+    `skills/realization-contract/`, needs `skills/concept/SKILL.md`. The script
+    reports its absence as a blocking A1 finding, with the fix: add the Tier 1
+    concept skill, or move the realization to a realization marketplace
     ([architecture.md section 10](../../../../docs/architecture.md#10-realization-marketplaces)).
 
 ## Severity

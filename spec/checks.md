@@ -22,8 +22,9 @@ the `both` rows, and must agree with the script on the `both` rows.
   - `judgement` rows are read by a skill. Every judgement row is `warn`, so no
     judgement row blocks a commit.
 - **Scope.**
-  - `marketplace` rows run on a marketplace repository only. [SCOPE](#set-scope-where-the-checks-run)
-    defines that test.
+  - `marketplace` rows are checked by the script on the directory it is given. The
+    commit hook and the activation check run them only on a marketplace repository.
+    [SCOPE](#set-scope-where-the-checks-run) defines that test.
   - `both` rows run on a marketplace repository and in a consuming workspace.
   - `workspace` rows run in a consuming workspace only. The script and the
     skills do not run them.
@@ -144,20 +145,29 @@ an ancestor's concept.
 
 ## Set SCOPE: where the checks run
 
-SCOPE defines the marketplace-repository test. Every rule that says
-"marketplace" means this test.
+SCOPE defines the marketplace-repository test. The commit hook and the
+activation check apply that test to the project directory they run in, and
+nothing else applies it. The script does not: it checks the directory it is
+given, and the SCOPE row says what it does when that directory's marketplace
+cannot be loaded.
 
 A repository is a marketplace repository only when both hold:
 - `${CLAUDE_PROJECT_DIR}/.claude-plugin/marketplace.json` exists;
 - `git rev-parse --show-toplevel`, run in `${CLAUDE_PROJECT_DIR}`, equals
   `${CLAUDE_PROJECT_DIR}`.
 
-A `marketplace.json` in a subdirectory, a submodule, a fixture, or the target
-of `git -C <dir>` never qualifies.
+For the commit hook and the activation check, a `marketplace.json` in a
+subdirectory, a submodule, a fixture, or the target of `git -C <dir>` never
+qualifies. In a repository that is not a marketplace repository, the hook and
+the activation check do nothing: they exit `0`, print nothing, and run no
+check. `tests/test_pre_commit_hook.py` and `tests/test_is_marketplace_repo.py`
+cover the no-manifest, subdirectory and submodule cases.
+
+The script applies no git test. Its check is the SCOPE row below.
 
 | Id | Passes when | Fails when | Severity | Kind | Scope | Implemented by |
 |---|---|---|---|---|---|---|
-| SCOPE | In a repository that is not a marketplace repository, the hook and the activation check do nothing: exit `0`, no output, and no check run. The conformance cases are a repository with no `marketplace.json`, one with a `marketplace.json` only in a subdirectory, and one with a `marketplace.json` only in a submodule. | A non-marketplace repository runs a check, or a `marketplace.json` in a subdirectory, a submodule, a fixture or a `git -C` target qualifies. The script, run on a directory whose marketplace cannot be loaded, exits `2` with a SCOPE message. | block | mechanical | marketplace | script |
+| SCOPE | The directory the script is given holds a `.claude-plugin/marketplace.json` that loads: it is valid JSON with a non-empty string `name`. The script then runs the checks, whether or not that directory is a git top level. | The directory the script is given has no `.claude-plugin/marketplace.json`, the file is not valid JSON, or it has no non-empty string `name`. The script exits `2` with a SCOPE finding. | block | mechanical | marketplace | script |
 
 ## Set M: marketplace conventions
 

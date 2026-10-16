@@ -64,7 +64,10 @@ call, if it is installed, to fail predictably instead of confusingly.
   your marketplace repo's naming, required docs, and structure as you
   author it, including a deeper check for any plugin that adopts the
   [concept/realization pattern](./docs/architecture.md) described below.
-  This is where the marketplace-authoring rules live.
+  This is where the marketplace-authoring rules live. How its compliance
+  check reaches an author (the commit hook, the on-demand skill and the CI
+  gate) and which version each author runs is in
+  [the compliance check's delivery](./docs/compliance-check-delivery.md).
 
 - **[guidance-activation-check](./plugins/guidance-activation-check)** —
   a shared pre-flight check a realization can call, if installed, before

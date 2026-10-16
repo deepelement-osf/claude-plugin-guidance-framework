@@ -22,8 +22,9 @@ the `both` rows, and must agree with the script on the `both` rows.
   - `judgement` rows are read by a skill. Every judgement row is `warn`, so no
     judgement row blocks a commit.
 - **Scope.**
-  - `marketplace` rows run on a marketplace repository only. [SCOPE](#set-scope-where-the-checks-run)
-    defines that test.
+  - `marketplace` rows are checked by the script on the directory it is given. The
+    commit hook and the activation check run them only on a marketplace repository.
+    [SCOPE](#set-scope-where-the-checks-run) defines that test.
   - `both` rows run on a marketplace repository and in a consuming workspace.
   - `workspace` rows run in a consuming workspace only. The script and the
     skills do not run them.
@@ -144,16 +145,20 @@ an ancestor's concept.
 
 ## Set SCOPE: where the checks run
 
-SCOPE defines the marketplace-repository test. Every rule that says
-"marketplace" means this test.
+SCOPE defines the marketplace-repository test. The commit hook and the
+activation check apply that test to the project directory they run in, and
+nothing else applies it. The script does not: it checks the directory it is
+given, and the SCOPE row says what it does when that directory's marketplace
+cannot be loaded.
 
 A repository is a marketplace repository only when both hold:
 - `${CLAUDE_PROJECT_DIR}/.claude-plugin/marketplace.json` exists;
 - `git rev-parse --show-toplevel`, run in `${CLAUDE_PROJECT_DIR}`, equals
   `${CLAUDE_PROJECT_DIR}`.
 
-A `marketplace.json` in a subdirectory, a submodule, a fixture, or the target
-of `git -C <dir>` never qualifies.
+For the commit hook and the activation check, a `marketplace.json` in a
+subdirectory, a submodule, a fixture, or the target of `git -C <dir>` never
+qualifies.
 
 | Id | Passes when | Fails when | Severity | Kind | Scope | Implemented by |
 |---|---|---|---|---|---|---|

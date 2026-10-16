@@ -21,11 +21,13 @@ The checks are meant for a marketplace repository: a git repository whose top le
 - The commit hook applies the git test. It exits silently in a project directory that is not a
   marketplace repository, and runs nothing there. A manifest in a subdirectory, a submodule or a
   fixture does not qualify for the hook.
-- The script does not apply the git test. It needs `.claude-plugin/marketplace.json` at the
-  directory it is given, and it exits `2` with a `SCOPE` finding when that file is missing, is not
-  valid JSON, or has no string `name`. Given a directory that holds a readable manifest, it runs the
-  checks, whether or not that directory is a git top level. The gap between this and the spec is
-  an open point, below.
+- The script does not apply the git test, and this is the decided behaviour. It checks the directory
+  it is given. It needs `.claude-plugin/marketplace.json` there, and it exits `2` with a `SCOPE`
+  finding when that file is missing, is not valid JSON, or has no string `name`. Given a directory
+  that holds a readable manifest, it runs the checks, whether or not that directory is a git top
+  level. The hook depends on this: it runs the script on an export of the commit in a temporary
+  directory. The [check catalog's SCOPE section](../spec/checks.md#set-scope-where-the-checks-run)
+  states the same split.
 
 ## The three triggers
 
@@ -225,18 +227,6 @@ the recipe reads:
 If a runner has no Node.js for npm, the native installer takes a version argument instead:
 `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.301`, then add `$HOME/.local/bin` to the
 path. The recipe above is the one that was run.
-
-## Open points
-
-- **SCOPE: spec and script disagree.** The SCOPE row of the [check catalog](../spec/checks.md#set-scope-where-the-checks-run)
-  defines the marketplace-repository test as a git top level holding the manifest, and lists a
-  manifest in a subdirectory or a submodule as a case that must not qualify. Observed at `ab5460a`:
-  `guidance_check.py` applies no git test. `is_marketplace_repository()` in `gc_model.py` is defined
-  but never called by the script, and only `pre_commit_hook.py` applies it. A directory that holds
-  only `.claude-plugin/marketplace.json`, inside another git repository, ran the checks and exited
-  `1`, with the findings from its missing README and LICENSE. Not decided here: whether the script
-  should apply the git test, so that it exits `2` with `SCOPE`, or whether the spec should state
-  what the script does.
 
 ## Related
 

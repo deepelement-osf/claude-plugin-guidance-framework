@@ -1667,11 +1667,14 @@ graph:
 
 #### What counts as a marketplace repository
 
-- The graph checks run only in a marketplace repository: a git repository
-  whose top level holds `.claude-plugin/marketplace.json`. §6 gives the full
-  test.
-- A `marketplace.json` in a subdirectory, a submodule, a fixture, or the target
-  of `git -C <dir>` does not qualify.
+- The commit hook and the activation check run only in a marketplace
+  repository: a git repository whose top level holds
+  `.claude-plugin/marketplace.json`. §6 gives the full test. The compliance
+  script checks the directory it is given, and it exits `2` with `SCOPE` when
+  that directory's marketplace cannot be loaded.
+- For the commit hook and the activation check, a `marketplace.json` in a
+  subdirectory, a submodule, a fixture, or the target of `git -C <dir>` does
+  not qualify.
 
 #### The stated checks
 

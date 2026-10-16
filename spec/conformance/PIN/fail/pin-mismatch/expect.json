@@ -1,0 +1,12 @@
+{
+  "exit": 2,
+  "checks": [
+    "PIN"
+  ],
+  "args": [
+    "--json",
+    "--no-official",
+    "--repo",
+    "marketplace"
+  ]
+}

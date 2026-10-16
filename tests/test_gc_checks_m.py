@@ -146,6 +146,34 @@ class M2Test(Base):
         ctx = self.ctx([{"name": "secrets"}])
         self.assertEqual(self.run_check(ctx, "M2", "block"), [])
 
+    def test_m2_is_reported_once_per_plugin(self):
+        # The loader used to report M2 as well; the check module is the only source now.
+        ctx = self.ctx([{"name": "secrets"}, {"name": "guidance-x"}])
+        self.assertEqual(len(self.run_check(ctx, "M2")), 2)
+
+    def test_shared_prefix_fix_declares_a_different_prefix_and_not_the_shared_name(self):
+        # acme-core uses the same prefix, so "acme-<concept>" would trigger AD2. The fix must not suggest it.
+        ctx = self.ctx([{"name": "secrets"}], upstream_plugins=[])
+        findings = self.run_check(ctx, "M2", "warn")
+        self.assertEqual(len(findings), 1)
+        fix = findings[0].fix
+        self.assertIn("metadata.pluginPrefix", fix)
+        self.assertIn("other than 'acme'", fix)
+        self.assertIn("acme-core", fix)
+        self.assertIn("do not rename it acme-<concept>", fix)
+        self.assertNotIn("name the plugin acme-<concept>", fix)
+
+    def test_unshared_prefix_fix_names_the_plugin_under_the_prefix(self):
+        ctx = self.ctx([{"name": "secrets"}], upstream_plugins=[], upstream_prefix="beta")
+        findings = self.run_check(ctx, "M2", "warn")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("name the plugin acme-<concept>, or declare metadata.pluginPrefix", findings[0].fix)
+
+    def test_guidance_name_fix_uses_this_marketplaces_prefix(self):
+        ctx = self.ctx([{"name": "guidance-x"}])
+        findings = self.run_check(ctx, "M2", "warn")
+        self.assertEqual(findings[0].fix, "rename the plugin under this marketplace's prefix, acme-<concept>")
+
 
 class M3Test(Base):
     def test_missing_license_blocks(self):

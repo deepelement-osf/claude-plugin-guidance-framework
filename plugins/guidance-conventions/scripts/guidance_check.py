@@ -72,6 +72,7 @@ from gc_resolve import ResolveError, resolve  # noqa: E402
 
 PIN_PREFIX = "guidance-conventions--v"
 SETTINGS_RELPATH = ".claude/settings.json"
+MANIFEST_RELPATH = ".claude-plugin/marketplace.json"
 CHECK_MODULES = ("gc_checks_f", "gc_checks_x", "gc_checks_v", "gc_checks_m", "gc_checks_a")
 
 
@@ -167,8 +168,17 @@ def load_previous(options: Options) -> Optional[dict]:
     return graph
 
 
+OFFICIAL_TIMEOUT_SECONDS = 60
+
+
 def official_findings(root, options: Options, findings: List[Finding]) -> None:
-    """Run the official validation, which is the Claude Code plugin validator."""
+    """Run the official validation, which is the Claude Code plugin validator, with --strict.
+
+    The validator is started with a list of arguments, never through a shell, and with
+    no standard input, so it cannot wait for an interactive session. A missing binary,
+    a start failure or a run longer than OFFICIAL_TIMEOUT_SECONDS is a could-not-run
+    result (CannotRun, exit 2).
+    """
     if options.no_official:
         return
     claude = shutil.which("claude")
@@ -176,11 +186,13 @@ def official_findings(root, options: Options, findings: List[Finding]) -> None:
         raise CannotRun("F-official", "the claude command is not on PATH",
                         "install Claude Code, or pass --no-official to skip the official validation")
     try:
-        result = subprocess.run([claude, "plugin", "validate", str(root)],
-                                capture_output=True, text=True, timeout=300, check=False)
+        result = subprocess.run([claude, "plugin", "validate", "--strict", str(root)],
+                                capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                timeout=OFFICIAL_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired:
-        raise CannotRun("F-official", "claude plugin validate did not finish in 300 seconds",
-                        "run it by hand to see where it stops") from None
+        raise CannotRun("F-official",
+                        f"claude plugin validate --strict did not finish in {OFFICIAL_TIMEOUT_SECONDS} seconds",
+                        "run it by hand to see where it stops, or pass --no-official to skip it") from None
     except OSError as exc:
         raise CannotRun("F-official", f"claude plugin validate cannot be started: {exc}",
                         "check the Claude Code installation") from None
@@ -189,8 +201,8 @@ def official_findings(root, options: Options, findings: List[Finding]) -> None:
         detail = lines[-1] if lines else f"exit {result.returncode}"
         findings.append(Finding(
             "F-official", "block", None,
-            f"claude plugin validate reports a failure: {detail}",
-            f"run claude plugin validate {root} and fix what it reports"))
+            f"claude plugin validate --strict reports a failure: {detail}",
+            f"run claude plugin validate --strict {root} and fix what it reports"))
 
 
 def run_check_modules(ctx: Context) -> List[Finding]:
@@ -239,6 +251,14 @@ def _compile(root: Path, marketplace: Marketplace, upstreams: Dict[str, Marketpl
              findings: List[Finding], notes: List[str]) -> Tuple[int, List[Finding]]:
     findings.extend(marketplace.findings)
     if any(f.blocking for f in marketplace.findings):
+        return 1, findings
+    if marketplace.missing_sources:
+        # The checks report M1, but this path runs no checks; a graph without the plugin must not be written.
+        for name, source in marketplace.missing_sources:
+            findings.append(Finding(
+                "M1", "block", MANIFEST_RELPATH,
+                f"plugin {name} has source {source}, which is not a directory in this repository",
+                "create the plugin directory under plugins/, or correct the source"))
         return 1, findings
     try:
         graph = compile(marketplace, upstreams)

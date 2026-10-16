@@ -179,19 +179,27 @@ def _m1(marketplace: Marketplace, findings: List[Finding]) -> None:
                 "create the plugin directory under plugins/, or correct the source"))
 
 
-def _m2(marketplace: Marketplace, findings: List[Finding]) -> None:
+def _m2(marketplace: Marketplace, upstreams: Dict[str, Marketplace], findings: List[Finding]) -> None:
     prefix = marketplace.prefix
+    # An upstream that uses the same prefix makes "<prefix>-<concept>" a name AD2 blocks,
+    # so the fix must move this marketplace to a different prefix instead.
+    shared = sorted(name for name, upstream in upstreams.items() if upstream.prefix == prefix)
     for entry in _entries(marketplace):
         name = entry["name"]
         if name.startswith("guidance-") and marketplace.name != GUIDANCE_MARKETPLACE:
             problem = "uses guidance-, which is reserved for the guidance marketplace"
+            fix = f"rename the plugin under this marketplace's prefix, {prefix}-<concept>"
         elif not plugin_names_ok(name, prefix):
             problem = f"does not start with the marketplace prefix {prefix}-"
+            if shared:
+                fix = (f"declare metadata.pluginPrefix in {MANIFEST_FILE} with a value other than {prefix!r}, "
+                       f"which upstream {', '.join(shared)} uses, and name the plugin under that new prefix; "
+                       f"do not rename it {prefix}-<concept>, which AD2 still reports")
+            else:
+                fix = f"name the plugin {prefix}-<concept>, or declare metadata.pluginPrefix"
         else:
             continue
-        findings.append(Finding(
-            "M2", "warn", MANIFEST_FILE, f"plugin {name} {problem}",
-            f"name the plugin {prefix}-<concept>, or declare metadata.pluginPrefix"))
+        findings.append(Finding("M2", "warn", MANIFEST_FILE, f"plugin {name} {problem}", fix))
 
 
 def _m3(marketplace: Marketplace, findings: List[Finding]) -> None:
@@ -433,11 +441,16 @@ def _ad2(marketplace: Marketplace, upstreams: Dict[str, Marketplace], findings: 
             if other is None or item.value in reported:
                 continue
             reported.add(item.value)
+            if marketplace.prefix == upstream.prefix:
+                fix = (f"declare metadata.pluginPrefix in {MANIFEST_FILE} with a value other than "
+                       f"{upstream.prefix!r}, then name the plugin under that new prefix")
+            else:
+                fix = "rename it under this marketplace's own prefix, and declare that prefix in metadata.pluginPrefix"
             findings.append(Finding(
                 "AD2", "block", item.file,
                 f"{item.kind} {item.value} of {item.owner} equals the {other.kind} of {other.owner} "
                 f"in upstream marketplace {upstream.name}",
-                "rename it under this marketplace's own prefix, and declare that prefix in metadata.pluginPrefix"))
+                fix))
 
 
 def run(ctx: Context) -> List[Finding]:
@@ -447,7 +460,7 @@ def run(ctx: Context) -> List[Finding]:
     dependencies = _declared(marketplace)
     allowlist = _allowlist(marketplace)
     _m1(marketplace, findings)
-    _m2(marketplace, findings)
+    _m2(marketplace, ctx.upstreams, findings)
     _m3(marketplace, findings)
     _u1(dependencies, findings)
     _u2(dependencies, findings)

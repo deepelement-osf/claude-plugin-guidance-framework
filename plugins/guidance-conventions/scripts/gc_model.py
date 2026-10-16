@@ -31,7 +31,10 @@ Plugin, Concept, Realization, Marketplace
     schema.json) and every skills/realize-*/ (a realization). It raises
     MarketplaceError only when the directory is not a marketplace at all. Every
     other problem is recorded in Marketplace.findings, as an F-files finding
-    (or AD1 for a duplicate concept), and loading goes on.
+    (or AD1 for a duplicate concept), and loading goes on. A relative-path source
+    whose directory does not exist is not a finding here: gc_checks_m reports it
+    as M1, the plugin loads with no directory (Plugin.dir None), and the
+    marketplace's missing_sources lists it for the compile.
 
 Context(root, marketplace, upstreams, previous_graph, options, guidance_version)
     What a check receives. upstreams maps a marketplace name to its loaded
@@ -41,9 +44,9 @@ Context(root, marketplace, upstreams, previous_graph, options, guidance_version)
 concept_name(plugin_name, prefix) -> str
     A concept's name is its plugin's name without "<prefix>-". The prefix is
     Marketplace.prefix: metadata.pluginPrefix of .claude-plugin/marketplace.json
-    when declared, else the first hyphen-separated segment of the marketplace
-    name. A plugin whose name does not start with "<prefix>-" gets an M2 warning,
-    and its concept is named by its full plugin name.
+    when declared and valid, else the first hyphen-separated segment of the
+    marketplace name. A plugin whose name does not start with "<prefix>-" is
+    reported as M2 by gc_checks_m, and its concept is named by its full plugin name.
     Whether "claude plugin validate" accepts the metadata key is UNVERIFIED
     (a spike). Until that spike runs, the official check is the only place that
     could object to it.
@@ -57,8 +60,9 @@ is_marketplace_repository(directory) -> bool
     and git reports that directory as its own top level.
 
 Plugin.dependencies is a list of {"name", "marketplace", "version"} dicts,
-read from the marketplace entry and from plugin.json. A string entry means a
-plugin of the same marketplace and has marketplace None.
+read from the marketplace entry and from plugin.json. A string entry
+"name@marketplace" is parsed like an object, with version None; a bare string
+name means a plugin of this marketplace. Both take part in resolution.
 """
 
 import os
@@ -257,15 +261,24 @@ def is_marketplace_repository(directory) -> bool:
     return result.returncode == 0 and bool(top) and os.path.realpath(top) == real
 
 
-def _normal_dependencies(raw: Any) -> Tuple[List[dict], List[Any]]:
-    """Return (normalised dependencies, entries that were not understood)."""
+def _normal_dependencies(raw: Any, own: str) -> Tuple[List[dict], List[Any]]:
+    """Return (normalised dependencies, entries that were not understood).
+
+    A string entry is "name@marketplace", split at its last "@". A bare name
+    means a plugin of the marketplace named own. Its version is None, because
+    the string form has none; U2 reports the string form itself.
+    """
     normal: List[dict] = []
     odd: List[Any] = []
     if not isinstance(raw, list):
         return normal, ([raw] if raw is not None else odd)
     for item in raw:
         if isinstance(item, str):
-            normal.append({"name": item, "marketplace": None, "version": None})
+            name, marketplace = (item.rsplit("@", 1) if "@" in item else (item, own))
+            if not name or not marketplace:
+                odd.append(item)
+                continue
+            normal.append({"name": name, "marketplace": marketplace, "version": None})
         elif isinstance(item, dict) and isinstance(item.get("name"), str):
             marketplace = item.get("marketplace")
             version = item.get("version")
@@ -357,6 +370,7 @@ class Marketplace:
         self.concepts: Dict[str, Concept] = {}
         self.realizations: List[Realization] = []
         self.findings: List[Finding] = []
+        self.missing_sources: List[Tuple[str, str]] = []  # (plugin name, source) with no directory
         self.prefix: str = self._declared_prefix()
         self.compiled: Optional[dict] = None
         self.compiled_path: Path = root / COMPILED_FILE
@@ -445,17 +459,11 @@ class Marketplace:
                 self._find("F-files", "block", self.root / ".claude-plugin" / "marketplace.json",
                            f"two plugin entries are named {name!r}", "give each plugin a unique name")
                 continue
-            if not name.startswith(self.prefix + "-"):
-                self._find("M2", "warn", self.root / ".claude-plugin" / "marketplace.json",
-                           f"plugin {name!r} does not start with the marketplace prefix {self.prefix + '-'!r}; "
-                           "its concept is named by its full plugin name",
-                           f"name the plugin {self.prefix}-{name}, or declare the prefix in "
-                           "metadata.pluginPrefix")
             source = entry.get("source")
             plugin_dir = self._plugin_dir(name, source)
             plugin = Plugin(name=name, entry=entry,
                             source=source if isinstance(source, str) else None, dir=plugin_dir)
-            deps, odd = _normal_dependencies(entry.get("dependencies"))
+            deps, odd = _normal_dependencies(entry.get("dependencies"), self.name)
             plugin.dependencies.extend(deps)
             if odd:
                 self._find("F-files", "warn", self.root / ".claude-plugin" / "marketplace.json",
@@ -467,7 +475,7 @@ class Marketplace:
                     plugin.manifest = manifest
                     if isinstance(manifest.get("version"), str):
                         plugin.version = manifest["version"]
-                    more, _ = _normal_dependencies(manifest.get("dependencies"))
+                    more, _ = _normal_dependencies(manifest.get("dependencies"), self.name)
                     plugin.dependencies.extend(more)
             self.plugins[name] = plugin
 
@@ -486,9 +494,8 @@ class Marketplace:
                        "point the source inside this repository")
             return None
         if not path.is_dir():
-            self._find("F-files", "block", self.root / ".claude-plugin" / "marketplace.json",
-                       f"plugin {name!r} source directory does not exist: {source}",
-                       "create the plugin directory or correct the source")
+            # gc_checks_m reports this as M1; the plugin loads with no files.
+            self.missing_sources.append((name, source))
             return None
         return path
 

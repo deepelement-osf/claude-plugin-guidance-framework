@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "plugins" / "guidance-conventions" / "scripts"
@@ -21,9 +22,18 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import gc_compile  # noqa: E402
+import gc_model  # noqa: E402
 import guidance_check  # noqa: E402
 from gc_compile import CompileError, compile, graph_hash, render, write_compiled  # noqa: E402
-from gc_model import Finding, Marketplace, MarketplaceError, concept_name, declared_references  # noqa: E402
+from gc_model import (  # noqa: E402
+    CannotRun,
+    Finding,
+    Marketplace,
+    MarketplaceError,
+    concept_name,
+    declared_references,
+    dependency_closure,
+)
 from gc_parse import (  # noqa: E402
     FrontmatterError,
     SchemaSubsetError,
@@ -327,15 +337,68 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(marketplace.concepts["nextjs-build"].id, "nextjs-build@acme-web")
         self.assertEqual(marketplace.findings, [])
 
-    def test_plugin_without_the_declared_prefix_warns_m2_and_keeps_its_full_name(self):
+    def test_plugin_without_the_declared_prefix_keeps_its_full_name_and_no_loader_finding(self):
+        # M2 is reported by gc_checks_m, not by the loader; the loader only names the concept.
         with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
             root = build_marketplace(Path(tmp) / "core", "acme-core", [
                 {"name": "acme-phase", "concept": True},
             ], metadata={"pluginPrefix": "acme-core"})
             marketplace = Marketplace.load(root)
-        self.assertEqual([(f.check, f.severity) for f in marketplace.findings], [("M2", "warn")])
-        self.assertFalse(marketplace.findings[0].blocking)
+        self.assertEqual(marketplace.findings, [])
         self.assertEqual(marketplace.concepts["acme-phase"].id, "acme-phase@acme-core")
+
+    def test_invalid_declared_prefix_falls_back_to_the_first_segment_for_every_concept_name(self):
+        # F-schema blocks the value; the graph and every concept name still use the default prefix.
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "web", "acme-web", [
+                {"name": "acme-nextjs-build", "concept": True},
+            ], metadata={"pluginPrefix": "-acme"})
+            marketplace = Marketplace.load(root)
+        self.assertEqual(marketplace.prefix, "acme")
+        self.assertEqual([(f.check, f.severity) for f in marketplace.findings], [("F-schema", "block")])
+        self.assertEqual(sorted(marketplace.concepts), ["nextjs-build"])
+        self.assertEqual(marketplace.concepts["nextjs-build"].id, "nextjs-build@acme-web")
+
+    def test_string_dependency_is_parsed_into_name_and_marketplace(self):
+        with tempfile.TemporaryDirectory(prefix="gc-deps-") as tmp:
+            root = build_marketplace(Path(tmp) / "web", "acme-web", [
+                {"name": "acme-nextjs-build", "concept": True,
+                 "deps": ["acme-build@acme-core", "acme-lint"]},
+            ])
+            marketplace = Marketplace.load(root)
+        deps = marketplace.plugins["acme-nextjs-build"].dependencies
+        self.assertEqual(deps, [
+            {"name": "acme-build", "marketplace": "acme-core", "version": None},
+            {"name": "acme-lint", "marketplace": "acme-web", "version": None},
+        ])
+        self.assertEqual(marketplace.direct_upstreams(), ["acme-core"])
+
+    def test_string_dependency_takes_part_in_the_upstream_closure(self):
+        with tempfile.TemporaryDirectory(prefix="gc-deps-") as tmp:
+            core = build_marketplace(Path(tmp) / "core", "acme-core", [
+                {"name": "acme-build", "concept": True},
+            ])
+            web = build_marketplace(Path(tmp) / "web", "acme-web", [
+                {"name": "acme-nextjs-build", "concept": True, "deps": ["acme-build@acme-core"]},
+            ])
+            upstreams = {"acme-core": Marketplace.load(core)}
+            marketplace = Marketplace.load(web)
+        self.assertEqual(dependency_closure(marketplace, upstreams), {"acme-core"})
+
+    def test_missing_plugin_directory_is_not_a_loader_finding(self):
+        # M1 reports the missing directory. The loader loads the plugin with no files and lists it.
+        with tempfile.TemporaryDirectory(prefix="gc-missing-") as tmp:
+            root = build_marketplace(Path(tmp) / "web", "acme-web", [
+                {"name": "acme-nextjs-build", "concept": True},
+            ])
+            manifest = load_json(root / ".claude-plugin" / "marketplace.json")
+            manifest["plugins"].append({"name": "acme-gone", "source": "./plugins/acme-gone"})
+            write_json(root / ".claude-plugin" / "marketplace.json", manifest)
+            marketplace = Marketplace.load(root)
+        self.assertEqual(marketplace.findings, [])
+        self.assertIsNone(marketplace.plugins["acme-gone"].dir)
+        self.assertEqual(marketplace.missing_sources, [("acme-gone", "./plugins/acme-gone")])
+        self.assertEqual(sorted(marketplace.concepts), ["nextjs-build"])
 
     def test_valid_plugin_prefixes_are_accepted(self):
         for prefix in ("acme", "acme-web", "a1-b2", "x"):
@@ -582,6 +645,19 @@ class CommandTests(unittest.TestCase):
         self.assertIn("F-schema", result.stdout)
         self.assertFalse((root / "concept-graph.json").exists())
 
+    def test_missing_plugin_directory_blocks_compile_with_m1(self):
+        # The loader no longer reports the missing directory, so compile must refuse on its own.
+        root = build_marketplace(self.tmp / "missing-dir-command", "acme-core",
+                                 [{"name": "acme-core-build", "concept": True}])
+        manifest = load_json(root / ".claude-plugin" / "marketplace.json")
+        manifest["plugins"].append({"name": "acme-core-gone", "source": "./plugins/acme-core-gone"})
+        write_json(root / ".claude-plugin" / "marketplace.json", manifest)
+        result = run_check(root, "--compile", "--no-pin")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("M1", result.stdout)
+        self.assertNotIn("F-files", result.stdout)
+        self.assertFalse((root / "concept-graph.json").exists())
+
     def test_missing_upstream_exits_two(self):
         beta = build_marketplace(self.tmp / "beta-command", "beta-core", [
             {"name": "beta-phase", "concept": True,
@@ -613,6 +689,65 @@ class CommandTests(unittest.TestCase):
         written = load_json(beta / "concept-graph.json")
         self.assertEqual(written["upstreams"][0]["graphHash"],
                          compile(Marketplace.load(alpha))["graphHash"])
+
+
+class OfficialTests(unittest.TestCase):
+    """The official validation runs claude plugin validate --strict, bounded in time, with no stdin."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="gc-official-")
+        self.tmp = Path(self._tmp.name)
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.root = self.tmp / "marketplace"
+        self.root.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def fake_claude(self, body: str) -> None:
+        script = self.bin / "claude"
+        script.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        script.chmod(0o755)
+
+    def run_official(self):
+        findings: list = []
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin)}):
+            guidance_check.official_findings(self.root, gc_model.Options(), findings)
+        return findings
+
+    def test_validate_is_run_with_strict_and_the_root_as_separate_arguments(self):
+        record = self.tmp / "argv.txt"
+        self.fake_claude(f'printf "%s\\n" "$@" > "{record}"\nexit 0\n')
+        self.assertEqual(self.run_official(), [])
+        self.assertEqual(record.read_text(encoding="utf-8").splitlines(),
+                         ["plugin", "validate", "--strict", str(self.root)])
+
+    def test_validator_failure_is_a_block_that_quotes_its_last_line(self):
+        self.fake_claude('echo "first line" >&2\necho "schema is wrong" >&2\nexit 1\n')
+        findings = self.run_official()
+        self.assertEqual([(f.check, f.severity) for f in findings], [("F-official", "block")])
+        self.assertIn("--strict", findings[0].message)
+        self.assertIn("schema is wrong", findings[0].message)
+
+    def test_validator_that_does_not_finish_is_a_could_not_run_after_the_bound(self):
+        self.fake_claude("exec /bin/sleep 30\n")
+        with mock.patch.object(guidance_check, "OFFICIAL_TIMEOUT_SECONDS", 1):
+            with self.assertRaises(CannotRun) as raised:
+                self.run_official()
+        self.assertEqual(raised.exception.check, "F-official")
+        self.assertIn("1 seconds", raised.exception.message)
+
+    def test_missing_claude_is_a_could_not_run(self):
+        with self.assertRaises(CannotRun) as raised:
+            self.run_official()
+        self.assertEqual(raised.exception.check, "F-official")
+
+    def test_no_official_skips_the_validator(self):
+        findings: list = []
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin)}):
+            guidance_check.official_findings(self.root, gc_model.Options(no_official=True), findings)
+        self.assertEqual(findings, [])
 
 
 class PinTests(unittest.TestCase):

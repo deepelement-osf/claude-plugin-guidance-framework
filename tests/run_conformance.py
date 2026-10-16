@@ -2,18 +2,34 @@
 """Run every conformance case under spec/conformance against guidance_check.py.
 
 A case is a directory spec/conformance/<check-id>/{pass,fail}/<case>/ holding
-marketplace/, optional upstreams/ and previous/, and expect.json. Each case runs
-the script with this invocation:
+marketplace/, optional upstreams/ and previous/, and expect.json. The script runs
+with the case directory as its working directory, so every path it receives is
+relative to the case:
 
-    python3 plugins/guidance-conventions/scripts/guidance_check.py <case>/marketplace \\
-        --upstreams <case>/upstreams --previous <case>/previous --no-official --no-pin --json
+    python3 -B plugins/guidance-conventions/scripts/guidance_check.py marketplace \\
+        --upstreams upstreams --previous previous --no-official --no-pin --json
 
 (--upstreams and --previous are given only when that directory exists.)
 
-Verdicts, from expect.json:
-    every case   the exit code equals "exit"
+expect.json has these fields:
+    exit      required; the exit code the script must return (0, 1 or 2)
+    checks    required; check ids that must be blocking findings (fail cases)
+    args      optional; a list of strings that replaces the default flags
+              "--no-official --no-pin --json". It must still include "--json",
+              because the verdict is read from stdout. Use it for flags such as
+              "--repo marketplace" (a path relative to the case). The
+              marketplace positional and the --upstreams/--previous options are
+              always added by the runner.
+    warnings  optional; check ids that must appear as warn findings
+
+Verdicts:
+    every case   the exit code equals "exit"; each id in "warnings" appears as a
+                 warn finding
     fail         each id in "checks" appears as a blocking finding
-    pass         no blocking finding carries the case's check id
+    pass         no blocking finding carries the case's check id, and no warn
+                 finding carries it unless "warnings" lists it
+
+The schema for expect.json is spec/schemas/conformance-expect.schema.json.
 
 Run from the repository root, one line per case:
 
@@ -31,6 +47,7 @@ from typing import List, NamedTuple, Optional
 ROOT = Path(__file__).resolve().parent.parent
 CONFORMANCE = ROOT / "spec" / "conformance"
 SCRIPT = ROOT / "plugins" / "guidance-conventions" / "scripts" / "guidance_check.py"
+DEFAULT_ARGS = ["--no-official", "--no-pin", "--json"]
 
 
 class Case(NamedTuple):
@@ -65,18 +82,21 @@ def discover(root: Path = CONFORMANCE) -> List[Case]:
     return cases
 
 
-def command_for(case: Case) -> List[str]:
-    cmd = [sys.executable, "-B", str(SCRIPT), str(case.path / "marketplace")]
+def command_for(case: Case, expect: Optional[dict] = None) -> List[str]:
+    """The argv for one case. Its paths are relative to the case directory, which is the working directory."""
+    args = expect.get("args") if isinstance(expect, dict) else None
+    if args is None:
+        args = DEFAULT_ARGS
+    cmd = [sys.executable, "-B", str(SCRIPT), "marketplace", *args]
     if (case.path / "upstreams").is_dir():
-        cmd += ["--upstreams", str(case.path / "upstreams")]
+        cmd += ["--upstreams", "upstreams"]
     if (case.path / "previous").is_dir():
-        cmd += ["--previous", str(case.path / "previous")]
-    cmd += ["--no-official", "--no-pin", "--json"]
+        cmd += ["--previous", "previous"]
     return cmd
 
 
-def _blocking_checks(findings: list) -> set:
-    return {f.get("check") for f in findings if f.get("severity") == "block"}
+def _checks_at(findings: list, severity: str) -> set:
+    return {f.get("check") for f in findings if f.get("severity") == severity}
 
 
 def judge(case: Case, expect: dict, returncode: int, stdout: str) -> Result:
@@ -91,11 +111,17 @@ def judge(case: Case, expect: dict, returncode: int, stdout: str) -> Result:
         return Result(case, False, f"JSON exit {payload.get('exit')} differs from process exit {returncode}")
 
     want_exit = expect.get("exit")
+    blocking = _checks_at(payload["findings"], "block")
     if returncode != want_exit:
-        blocking = sorted(_blocking_checks(payload["findings"]) - {None})
-        return Result(case, False, f"exit {returncode}, expected {want_exit}; blocking: {', '.join(blocking) or 'none'}")
+        listed = sorted(blocking - {None})
+        return Result(case, False, f"exit {returncode}, expected {want_exit}; blocking: {', '.join(listed) or 'none'}")
 
-    blocking = _blocking_checks(payload["findings"])
+    warned = _checks_at(payload["findings"], "warn")
+    listed_warnings = expect.get("warnings", [])
+    missing_warnings = [cid for cid in listed_warnings if cid not in warned]
+    if missing_warnings:
+        return Result(case, False, f"no warn finding for {', '.join(missing_warnings)}")
+
     if case.outcome == "fail":
         missing = [cid for cid in expect.get("checks", []) if cid not in blocking]
         if missing:
@@ -104,6 +130,8 @@ def judge(case: Case, expect: dict, returncode: int, stdout: str) -> Result:
 
     if case.check in blocking:
         return Result(case, False, f"blocking finding for {case.check} in a pass case")
+    if case.check in warned and case.check not in listed_warnings:
+        return Result(case, False, f"warn finding for {case.check} in a pass case, not listed in warnings")
     return Result(case, True, f"exit {returncode}")
 
 
@@ -118,8 +146,8 @@ def run_case(case: Case) -> Result:
     if not (case.path / "marketplace").is_dir():
         return Result(case, False, "case has no marketplace/ directory")
     try:
-        proc = subprocess.run(command_for(case), capture_output=True, text=True,
-                              cwd=str(ROOT), timeout=600, check=False)
+        proc = subprocess.run(command_for(case, expect), capture_output=True, text=True,
+                              cwd=str(case.path), timeout=600, check=False)
     except subprocess.TimeoutExpired:
         return Result(case, False, "script did not finish in 600 seconds")
     return judge(case, expect, proc.returncode, proc.stdout)

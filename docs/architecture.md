@@ -1675,6 +1675,9 @@ graph:
 
 #### The stated checks
 
+- How the mechanical checks are delivered to an author (the commit hook, the
+  on-demand skill, the CI gate and the pin) is in
+  [compliance-check-delivery.md](./compliance-check-delivery.md).
 - Each check, with its id, its severity, whether it is mechanical or judgement,
   and where it runs (`marketplace`, `workspace` or `both`), is in
   [`spec/checks.md`](../spec/checks.md). This section does not restate them.

@@ -15,12 +15,17 @@ Facts below were read from `guidance-conventions` 5.0.0 at commit `ab5460a`, tag
 
 ## Where the check runs
 
-The check runs only in a marketplace repository: a git repository whose top level holds
-`.claude-plugin/marketplace.json`. A manifest in a subdirectory, a submodule or a fixture does not
-qualify.
+The checks are meant for a marketplace repository: a git repository whose top level holds
+`.claude-plugin/marketplace.json`. Two parts of the delivery apply that test differently.
 
-- Run on any other directory, the script exits `2` with a `SCOPE` finding.
-- The commit hook exits silently in any other repository, and runs nothing there.
+- The commit hook applies the git test. It exits silently in a project directory that is not a
+  marketplace repository, and runs nothing there. A manifest in a subdirectory, a submodule or a
+  fixture does not qualify for the hook.
+- The script does not apply the git test. It needs `.claude-plugin/marketplace.json` at the
+  directory it is given, and it exits `2` with a `SCOPE` finding when that file is missing, is not
+  valid JSON, or has no string `name`. Given a directory that holds a readable manifest, it runs the
+  checks, whether or not that directory is a git top level. The gap between this and the spec is
+  an open point, below.
 
 ## The three triggers
 
@@ -72,7 +77,7 @@ python3 <plugin directory>/scripts/guidance_check.py [DIRECTORY]
 | Option | Effect |
 |---|---|
 | `--json` | Print `{"exit": n, "findings": [...]}` instead of text. Each finding has `check`, `severity`, `file`, `message` and `fix`. |
-| `--compile` | Write `concept-graph.json` and stop. The checks do not run. This is the only write the script makes. |
+| `--compile` | Write `concept-graph.json` at the repository root and stop. The checks do not run. Upstream resolution (below) still runs first. |
 | `--no-official` | Skip the official validator (below). |
 | `--no-pin` | Skip the pin check (below). |
 | `--repo PATH` | Read the pin from this repository's `.claude/settings.json`. The default is the checked directory. |
@@ -84,7 +89,7 @@ Exit codes:
 |---|---|
 | `0` | Every check passed, possibly with warnings. |
 | `1` | At least one blocking finding. |
-| `2` | The check could not run: the directory is not a marketplace repository, an upstream cannot be resolved, the pin does not match, or the official validator cannot run. |
+| `2` | The check could not run: the directory has no readable `.claude-plugin/marketplace.json` with a `name` (`SCOPE`), an upstream cannot be resolved, the pin does not match, or the official validator cannot run. |
 
 The official validator is part of the script. It runs
 `claude plugin validate --json --strict` on the repository. It needs `claude` on `PATH`, and
@@ -92,7 +97,32 @@ Claude Code 2.1.259 or later, the first release whose validator accepts `--json`
 Claude Code, or a missing `claude`, exits `2`. The validator needs no model credentials. It was
 run on Claude Code 2.1.301 with no API key and no OAuth token set, and it passed.
 
-The script never edits a file, except for `--compile`.
+### Writes and network access
+
+The script writes into the repository only under `--compile`, which writes `concept-graph.json` at
+its root. Python also writes `__pycache__` beside the plugin's modules unless it runs with `-B`,
+which the CI recipe below does. The commit hook and the skill run the same script, so they do the
+same.
+
+Every run resolves each upstream marketplace that the repository depends on, and that can use the
+network and write a cache. The script tries these, in order, for each upstream `<name>`, and stops at
+the first copy that holds the versions the repository needs:
+
+1. `--upstreams DIR`: the copy at `DIR/<name>`, used as it is. Nothing is written.
+2. Claude Code's registered copy at `$GUIDANCE_CHECK_MARKETPLACES_DIR/<name>`, or
+   `~/.claude/plugins/marketplaces/<name>` when that variable is unset. Read only.
+3. The cache at `$CLAUDE_PLUGIN_DATA/upstreams/<name>`, or
+   `~/.cache/guidance-conventions/upstreams/<name>` when that variable is unset. Read only.
+4. A fetch, when the first three give no usable copy and a version can be chosen. The script clones
+   each needed plugin from its own `<plugin>--v<version>` tag, with `git clone --depth 1`, from the
+   source that `.claude/settings.json` registers for the marketplace. It assembles a copy, stores it
+   in the cache at `<name>`, and replaces the cache entry of that name.
+
+A version has to be chosen under `--compile`, and for an upstream whose declared range has no
+recorded version. Then the script lists that upstream's tags with `git ls-remote --tags` from the
+registered source, or from a local checkout that has tags when no source is registered. It does
+this before it looks at the copies in steps 2 and 3, and it does not do it when `--upstreams`
+supplies the copy.
 
 ## The pin
 
@@ -195,6 +225,18 @@ the recipe reads:
 If a runner has no Node.js for npm, the native installer takes a version argument instead:
 `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.301`, then add `$HOME/.local/bin` to the
 path. The recipe above is the one that was run.
+
+## Open points
+
+- **SCOPE: spec and script disagree.** The SCOPE row of the [check catalog](../spec/checks.md#set-scope-where-the-checks-run)
+  defines the marketplace-repository test as a git top level holding the manifest, and lists a
+  manifest in a subdirectory or a submodule as a case that must not qualify. Observed at `ab5460a`:
+  `guidance_check.py` applies no git test. `is_marketplace_repository()` in `gc_model.py` is defined
+  but never called by the script, and only `pre_commit_hook.py` applies it. A directory that holds
+  only `.claude-plugin/marketplace.json`, inside another git repository, ran the checks and exited
+  `1`, with the findings from its missing README and LICENSE. Not decided here: whether the script
+  should apply the git test, so that it exits `2` with `SCOPE`, or whether the spec should state
+  what the script does.
 
 ## Related
 

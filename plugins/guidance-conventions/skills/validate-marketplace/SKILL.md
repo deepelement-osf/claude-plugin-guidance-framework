@@ -79,13 +79,15 @@ their procedure. Look up the pass rule, the fail rule and the severity for each
 id in [spec/checks.md](../../../../spec/checks.md).
 
 - **M2, plugin naming prefix.** Every plugin name starts with the
-  marketplace's prefix and a hyphen. The prefix is `metadata.pluginPrefix` in
-  `.claude-plugin/marketplace.json`, written without a trailing hyphen
-  (`acme-aws`, not `acme-aws-`), or, when that key is absent, the first
-  hyphen-delimited segment of the marketplace `name`. A plugin that does not
-  match is named by its full plugin name as its concept name. The `guidance-`
-  prefix is reserved for the guidance marketplace. A malformed `pluginPrefix`
-  is an F-schema block.
+  marketplace's prefix and a hyphen. The prefix is `pluginPrefix` in
+  `.claude-plugin/guidance.json`, written without a trailing hyphen
+  (`acme-aws`, not `acme-aws-`), or, when that file is absent or has no
+  `pluginPrefix`, the first hyphen-delimited segment of the marketplace `name`.
+  A plugin that does not match is named by its full plugin name as its concept
+  name. The `guidance-` prefix is reserved for the guidance marketplace. An
+  invalid `guidance.json`, a malformed `pluginPrefix`, or a `metadata.pluginPrefix`
+  left in `marketplace.json` is an F-schema block. The fix for the last one is
+  to move the value to `.claude-plugin/guidance.json`.
 - **U1 to U4, upstream declarations (set U).** Cross-marketplace dependencies
   sit in the marketplace entry, use the object form with a version, and are
   allowed by the root allowlist. The README has the `## Required marketplaces`

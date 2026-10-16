@@ -188,7 +188,9 @@ Every plugin in a published marketplace's `plugins/` directory that
 follows this pattern is a concept plugin and represents one abstract
 capability ("Concept"), named for what it does, not for how it's
 implemented — e.g. `acme-secrets`, not `acme-aws-secrets-manager`. A
-concept's name is its plugin's name without the marketplace's prefix and its hyphen: `secrets` for `acme-secrets`. The prefix is `metadata.pluginPrefix` in the marketplace's `.claude-plugin/marketplace.json`, written without a trailing hyphen (`acme-aws`, not `acme-aws-`). A malformed value is a block under the F-schema check. When that key is absent, the prefix is the first hyphen-delimited segment of the marketplace's `name`. A plugin whose name does not start with the prefix keeps its full plugin name as its concept name. Whether `claude plugin validate --strict` accepts the `metadata.pluginPrefix` key is not yet verified against the CLI. Concepts are
+concept's name is its plugin's name without the marketplace's prefix and its hyphen: `secrets` for `acme-secrets`. The prefix is declared as `pluginPrefix` in `.claude-plugin/guidance.json`, a file that sits beside the marketplace's `.claude-plugin/marketplace.json`. It is written without a trailing hyphen (`acme-aws`, not `acme-aws-`). The file is optional, and its shape is set by [`spec/schemas/guidance-marketplace.schema.json`](../spec/schemas/guidance-marketplace.schema.json). When the file is absent, or has no `pluginPrefix`, the prefix is the first hyphen-delimited segment of the marketplace's `name`. A plugin whose name does not start with the prefix keeps its full plugin name as its concept name.
+
+The prefix does not go in `marketplace.json`. Claude Code reports an unknown field in `marketplace.json` as a warning, `Unknown field 'pluginPrefix'`, and ignores it at load time, and `claude plugin validate --strict` fails on that warning. So the value lives in a file that guidance owns. A `guidance.json` that is not valid JSON, is not an object, has an unknown key, or has a malformed `pluginPrefix` is a block under the F-schema check, and the default prefix is used for the rest of the run. A `metadata.pluginPrefix` left in `marketplace.json` is also an F-schema block, and its fix is to move the value to `.claude-plugin/guidance.json`. Concepts are
 siblings: none depends on another's internal structure. A concept may
 *reference* another concept by name alone (see §5) without knowing or
 caring which realization backs it in a given workspace.
@@ -1017,7 +1019,7 @@ To migrate, fix what the finding names:
 | U3: a marketplace an entry names is not in the root allowlist | Add it to `allowCrossMarketplaceDependenciesOn` (recipe step 2). |
 | U4: no `## Required marketplaces` section, or no row for an allowlisted marketplace | Add the section from the template above. |
 | AD1: two plugins define one concept name | Rename one under the marketplace's own prefix. |
-| AD2: a plugin name, concept name or prefix equals an upstream's | Rename the plugin or concept under the marketplace's own prefix. If the prefix itself is the overlap, set a `metadata.pluginPrefix` that differs from the upstream's, and rename its plugins to match. |
+| AD2: a plugin name, concept name or prefix equals an upstream's | Rename the plugin or concept under the marketplace's own prefix. If the prefix itself is the overlap, set a `pluginPrefix` in `.claude-plugin/guidance.json` that differs from the upstream's, and rename its plugins to match. |
 | AD3: a realization of an ancestor's concept is marked as the default | Remove the default marker. Only the defining marketplace marks a default. A non-default realization of an ancestor's concept is allowed. |
 
 Renaming a published plugin is a breaking change for the consuming
@@ -1068,7 +1070,8 @@ realization marketplace or by a downstream published marketplace.
 
 ```
 acme-aws-realizations/                       # marketplace name
-├── .claude-plugin/marketplace.json          # metadata.pluginPrefix: "acme-aws"
+├── .claude-plugin/marketplace.json          # the official manifest
+├── .claude-plugin/guidance.json             # {"pluginPrefix": "acme-aws"}, optional
 ├── README.md                                # includes ## Required marketplaces
 └── plugins/
     └── acme-aws-realize-secrets/            # <prefix>-realize-<concept>

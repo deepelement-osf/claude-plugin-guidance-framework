@@ -26,7 +26,9 @@ different reasons:
 
 - **Published and realization marketplace authors** install its
   authoring tooling into the marketplace repo they are building (a
-  `.claude-plugin/marketplace.json` plus a `plugins/` directory),
+  `.claude-plugin/marketplace.json` plus a `plugins/` directory, and
+  optionally a `.claude-plugin/guidance.json` that declares the plugin-name
+  prefix),
   authored so its checks run *as you write*, not after.
 - **A consuming workspace** never registers or installs it. Guidance is
   authoring tooling for marketplace repositories only. A consuming workspace

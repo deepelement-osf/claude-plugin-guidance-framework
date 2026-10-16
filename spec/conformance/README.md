@@ -32,7 +32,7 @@ change that adds or removes a case.
 | F-capability | | `role-less-graph-participation` |
 | F-compiled | `description-only-change` | `stale-after-source-edit` |
 | F-files | `capability-without-realization` | `missing-graph-contract` |
-| F-schema | | `unknown-graph-field`, `bad-plugin-prefix`, `graph-spec-version-out-of-range` |
+| F-schema | | `unknown-graph-field`, `bad-plugin-prefix`, `plugin-prefix-in-marketplace-metadata`, `guidance-json-unknown-key`, `graph-spec-version-out-of-range` |
 | F-selection | | `phase-contract-many` |
 | F-tier2 | | `refinement-contract-without-result` |
 | F-tier3 | `builds-on-upstream-realization` | `builds-on-missing` |
@@ -56,7 +56,7 @@ change that adds or removes a case.
 - `AD1/pass/distinct-concept-names`: every concept name in the marketplace is defined by one plugin.
 - `AD1/fail/concept-defined-twice`: two plugins in the marketplace define the same concept name.
 - `AD2/pass/distinct-prefix-and-names`: the marketplace's prefix and its plugin and concept names share nothing with the upstream's.
-- `AD2/fail/prefix-equals-upstream-prefix`: the marketplace declares the same `metadata.pluginPrefix` as an upstream it resolves.
+- `AD2/fail/prefix-equals-upstream-prefix`: the marketplace declares, in `.claude-plugin/guidance.json`, the same `pluginPrefix` as an upstream it resolves.
 - `AD3/pass/downstream-realization-not-default`: a downstream realization of an upstream phase is not marked default.
 - `AD3/fail/downstream-realization-marked-default`: a downstream realization of an upstream phase is marked default.
 - `F-agree/pass/prose-outside-graph-section`: prose outside the Graph participation section does not change the graph role.
@@ -68,7 +68,9 @@ change that adds or removes a case.
 - `F-files/pass/capability-without-realization`: a capability with no realization directory is valid.
 - `F-files/fail/missing-graph-contract`: a graph node has no graph-contract.json.
 - `F-schema/fail/unknown-graph-field`: the graph frontmatter has a field the spec does not define.
-- `F-schema/fail/bad-plugin-prefix`: the marketplace's `metadata.pluginPrefix` is malformed, so it is a block.
+- `F-schema/fail/bad-plugin-prefix`: the `pluginPrefix` in the marketplace's `.claude-plugin/guidance.json` is malformed, so it is a block.
+- `F-schema/fail/plugin-prefix-in-marketplace-metadata`: the marketplace's `.claude-plugin/marketplace.json` still carries `metadata.pluginPrefix`, which is no longer read, so it is a block whose fix moves the value to `.claude-plugin/guidance.json`.
+- `F-schema/fail/guidance-json-unknown-key`: the marketplace's `.claude-plugin/guidance.json` has a key that the guidance marketplace schema does not define, so it is a block.
 - `F-schema/fail/graph-spec-version-out-of-range`: a file's `graphSpecVersion` is outside the range the script supports, so the run exits `2`.
 - `F-selection/fail/phase-contract-many`: a phase contract uses selection "many".
 - `F-tier2/fail/refinement-contract-without-result`: a refinement contract has no result shape.
@@ -92,7 +94,7 @@ change that adds or removes a case.
 - `X-order/fail/after-cycle`: two refinements declare after edges that form a cycle.
 - `X-placement/pass/uses-ancestor-capability`: a downstream node uses a capability from an ancestor marketplace.
 - `X-placement/fail/refines-sibling-marketplace`: a downstream node refines a node in a marketplace it does not inherit from.
-- `X-resolve/pass/multi-word-prefix`: an upstream whose `metadata.pluginPrefix` is multi-word (`acme-core`) resolves, and its plugins are named under that prefix.
+- `X-resolve/pass/multi-word-prefix`: an upstream whose `pluginPrefix` in `.claude-plugin/guidance.json` is multi-word (`acme-core`) resolves, and its plugins are named under that prefix.
 - `X-resolve/fail/refines-missing-concept`: a refinement names a concept that does not exist upstream.
 - `X-roles/pass/observes-refinement-role`: an observer observes the refinement role.
 - `X-roles/fail/observes-capability-role`: an observer observes the capability role, which the spec does not allow.

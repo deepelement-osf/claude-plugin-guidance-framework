@@ -27,6 +27,9 @@ graph use it, and one release has passed with no MAJOR schema change.
     repository root.
   - `conformance-expect.schema.json`: the `expect.json` of a conformance
     case.
+  - `guidance-marketplace.schema.json`: `.claude-plugin/guidance.json`, the
+    optional file beside a marketplace's `marketplace.json`. It declares the
+    marketplace's `pluginPrefix`, and nothing else.
 - `checks.md` is the check catalog. For each check id it states the pass
   and fail conditions, the severity, whether the check is mechanical or a
   judgement call, its scope (`marketplace`, `workspace` or `both`), and

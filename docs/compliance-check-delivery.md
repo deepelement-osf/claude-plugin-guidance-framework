@@ -118,9 +118,9 @@ and this recipe uses none.
 1. Install Claude Code at 2.1.259 or later. Pin the exact version in the workflow. The example
    below uses 2.1.301, the version this recipe was run on.
 2. Register guidance at the ref the committed settings pin. A CI job runs no session, so the
-   `extraKnownMarketplaces` declaration is not applied by itself. A plugin install alone reports
-   `Plugin "guidance-conventions" not found`, so the job registers the marketplace explicitly,
-   from the same repository and ref the settings declare.
+   `extraKnownMarketplaces` declaration is not applied by itself, and an install fails until the
+   marketplace is registered (observed below). The job therefore registers the marketplace
+   explicitly, from the same repository and ref the settings declare.
 3. Install `guidance-conventions@claude-plugin-guidance`. The install is in the default user
    scope, so the committed settings file is not written.
 4. Find the installed plugin directory from `claude plugin list --json`, in the entry's
@@ -161,6 +161,19 @@ jobs:
           INSTALL_PATH=$(claude plugin list --json | python3 -c 'import json,sys; print(next(p["installPath"] for p in json.load(sys.stdin) if p["id"] == "guidance-conventions@claude-plugin-guidance"))')
           python3 -B "${INSTALL_PATH}/scripts/guidance_check.py" .
 ```
+
+Observed on Claude Code 2.1.301, with `CLAUDE_CONFIG_DIR` set to an empty directory and no
+marketplace registered, `claude plugin install guidance-conventions@claude-plugin-guidance` exited
+`1` and printed:
+
+```
+Plugin "guidance-conventions" not found in marketplace "claude-plugin-guidance". Your local copy may be out of date — try `claude plugin marketplace update claude-plugin-guidance`.
+```
+
+The bare name `guidance-conventions` printed `Plugin "guidance-conventions" not found in any
+configured marketplace`. The qualified install printed the same text from a neutral directory and
+from a directory whose committed settings declare the source. The hint in the first message is the
+CLI's own; it is printed even though the marketplace was never registered.
 
 The `github` source in the committed settings file looks like this, with the repository and ref
 the recipe reads:

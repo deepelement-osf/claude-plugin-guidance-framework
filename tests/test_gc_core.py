@@ -38,6 +38,7 @@ from gc_parse import (  # noqa: E402
 )
 
 CHECK_SCRIPT = SCRIPTS / "guidance_check.py"
+GUIDANCE_NAME = "claude-plugin-guidance"
 GIT_IDENTITY = {
     "GIT_AUTHOR_NAME": "Test",
     "GIT_AUTHOR_EMAIL": "test@example.invalid",
@@ -105,14 +106,16 @@ name: {name}
 """
 
 
-def build_marketplace(root: Path, name: str, plugins, order=None) -> Path:
+def build_marketplace(root: Path, name: str, plugins, order=None, metadata=None) -> Path:
     """Write a marketplace. plugins: dicts with name, version, concept (bool),
     realizations (list of str), capability (bool), deps (list of dicts).
-    order, when given, lists plugin names in the order the manifest uses."""
+    order, when given, lists plugin names in the order the manifest uses.
+    metadata, when given, is written as the manifest's metadata object."""
     by_name = {p["name"]: p for p in plugins}
     names = order or [p["name"] for p in plugins]
     entries = []
-    prefix = name.split("-", 1)[0]
+    declared = (metadata or {}).get("pluginPrefix")
+    prefix = declared if isinstance(declared, str) and declared else name.split("-", 1)[0]
     for plugin_name in names:
         spec = by_name[plugin_name]
         entry = {"name": plugin_name, "source": f"./plugins/{plugin_name}"}
@@ -135,27 +138,27 @@ def build_marketplace(root: Path, name: str, plugins, order=None) -> Path:
             concept_ref = f"{concept_name(plugin_name, prefix)}@{name}"
             write(base / "skills" / f"realize-{realization}" / "SKILL.md",
                   REALIZATION_SKILL.format(concept=concept_ref, name=realization))
-    write_json(root / ".claude-plugin" / "marketplace.json",
-               {"name": name, "owner": {"name": "Test"}, "plugins": entries})
+    manifest = {"name": name, "owner": {"name": "Test"}, "plugins": entries}
+    if metadata is not None:
+        manifest["metadata"] = metadata
+    write_json(root / ".claude-plugin" / "marketplace.json", manifest)
     return root
 
 
-def make_git_repo(path: Path, tag: str = None) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    env = _clean_env()
-    subprocess.run(["git", "init", "-q"], cwd=str(path), env=env, check=True)
-    subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init"],
-                   cwd=str(path), env=env, check=True)
-    if tag:
-        subprocess.run(["git", "tag", tag], cwd=str(path), env=env, check=True)
-    return path
+def write_settings(repo: Path, ref=None, marketplace=GUIDANCE_NAME) -> None:
+    """Write the committed settings that pin guidance. ref=None omits the ref."""
+    source = {"source": "github", "repo": "acme/claude-plugin-guidance"}
+    if ref is not None:
+        source["ref"] = ref
+    write_json(repo / ".claude" / "settings.json",
+               {"extraKnownMarketplaces": {marketplace: {"source": source}}})
 
 
 def run_check(directory, *args):
     home = tempfile.mkdtemp(prefix="gc-home-")
     env = _clean_env(HOME=home, CLAUDE_PLUGIN_DATA=home)
     return subprocess.run(
-        [sys.executable, str(CHECK_SCRIPT), str(directory), "--no-official", *args],
+        [sys.executable, "-B", str(CHECK_SCRIPT), str(directory), "--no-official", *args],
         capture_output=True, text=True, env=env, check=False)
 
 
@@ -297,6 +300,72 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(concept_name("acme-phase", "acme"), "phase")
         self.assertEqual(concept_name("standalone", "acme"), "standalone")
 
+    def test_concept_name_strips_a_multi_word_prefix(self):
+        self.assertEqual(concept_name("acme-web-nextjs-build", "acme-web"), "nextjs-build")
+        self.assertEqual(concept_name("acme-web-nextjs-build", "acme"), "web-nextjs-build")
+        self.assertEqual(concept_name("acme-phase", "acme-web"), "acme-phase")
+
+    def test_declared_plugin_prefix_names_the_concepts(self):
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "core", "acme-core", [
+                {"name": "acme-core-build", "concept": True},
+                {"name": "acme-core-deliver", "concept": True},
+            ], metadata={"pluginPrefix": "acme-core"})
+            marketplace = Marketplace.load(root)
+        self.assertEqual(sorted(marketplace.concepts), ["build", "deliver"])
+        self.assertEqual(marketplace.concepts["build"].id, "build@acme-core")
+        self.assertEqual(marketplace.prefix, "acme-core")
+        self.assertEqual(marketplace.findings, [])
+
+    def test_default_prefix_is_the_first_segment_when_undeclared(self):
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "web", "acme-web", [
+                {"name": "acme-nextjs-build", "concept": True},
+            ])
+            marketplace = Marketplace.load(root)
+        self.assertEqual(marketplace.prefix, "acme")
+        self.assertEqual(marketplace.concepts["nextjs-build"].id, "nextjs-build@acme-web")
+        self.assertEqual(marketplace.findings, [])
+
+    def test_plugin_without_the_declared_prefix_warns_m2_and_keeps_its_full_name(self):
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "core", "acme-core", [
+                {"name": "acme-phase", "concept": True},
+            ], metadata={"pluginPrefix": "acme-core"})
+            marketplace = Marketplace.load(root)
+        self.assertEqual([(f.check, f.severity) for f in marketplace.findings], [("M2", "warn")])
+        self.assertFalse(marketplace.findings[0].blocking)
+        self.assertEqual(marketplace.concepts["acme-phase"].id, "acme-phase@acme-core")
+
+    def test_valid_plugin_prefixes_are_accepted(self):
+        for prefix in ("acme", "acme-web", "a1-b2", "x"):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+                root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                    {"name": f"{prefix}-build", "concept": True},
+                ], metadata={"pluginPrefix": prefix})
+                blocking = [f for f in Marketplace.load(root).findings if f.blocking]
+                self.assertEqual(blocking, [])
+
+    def test_invalid_plugin_prefix_is_an_f_schema_block(self):
+        for value in ("-acme", "acme-", "Acme", "acme--web", "", "acme web", 3, ["acme"]):
+            with self.subTest(value=value), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+                root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                    {"name": "acme-core-build", "concept": True},
+                ], metadata={"pluginPrefix": value})
+                findings = Marketplace.load(root).findings
+                self.assertEqual([(f.check, f.severity) for f in findings], [("F-schema", "block")])
+
+    def test_metadata_that_is_not_an_object_is_an_f_schema_block(self):
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                {"name": "acme-core-build", "concept": True},
+            ])
+            manifest = load_json(root / ".claude-plugin" / "marketplace.json")
+            manifest["metadata"] = "acme-core"
+            write_json(root / ".claude-plugin" / "marketplace.json", manifest)
+            findings = Marketplace.load(root).findings
+        self.assertEqual([(f.check, f.severity) for f in findings], [("F-schema", "block")])
+
     def test_declared_references(self):
         graph = {"refines": "a@acme-core", "observes": ["b@acme-core", "all"],
                  "edges": [{"to": "c@acme-core"}]}
@@ -402,6 +471,15 @@ class CompileTests(unittest.TestCase):
             compile(Marketplace.load(beta))
         self.assertEqual(ctx.exception.check, "X-resolve")
 
+    def test_guidance_dependency_is_not_an_upstream_for_compile(self):
+        root = build_marketplace(self.tmp / "guidance-dep", "acme-web", [
+            {"name": "acme-audit", "concept": True, "deps": [
+                {"name": "guidance-activation-check", "marketplace": GUIDANCE_NAME, "version": "^2.0.0"}]},
+        ])
+        marketplace = Marketplace.load(root)
+        self.assertEqual(marketplace.direct_upstreams(), [])
+        self.assertEqual(compile(marketplace)["upstreams"], [])
+
 
 class CommandTests(unittest.TestCase):
     def setUp(self):
@@ -427,36 +505,82 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(payload["exit"], 2)
         self.assertEqual(payload["findings"][0]["check"], "SCOPE")
 
+    def pinned_repo(self, name, ref=None, marketplace=GUIDANCE_NAME):
+        """A marketplace repository, named name, whose settings pin ref (or pin nothing when ref is None)."""
+        repo = self.tmp / name
+        build_marketplace(repo, GUIDANCE_NAME, [{"name": "guidance-conventions"}],
+                          metadata={"pluginPrefix": "guidance"})
+        write(repo / "LICENSE", "Synthetic license text for a unit test.\n")
+        write(repo / "README.md", "# guidance\n\nSynthetic marketplace for a unit test.\n\n"
+                                  "## License\n\nIt is licensed under the terms in the LICENSE file.\n")
+        if ref is not None or marketplace != GUIDANCE_NAME:
+            write_settings(repo, ref, marketplace=marketplace)
+        return repo
+
     def test_pin_mismatch_exits_two_and_names_both_commands(self):
-        repo = make_git_repo(self.tmp / "guidance-pinned", tag="guidance-conventions--v0.0.1")
-        build_marketplace(repo, "claude-plugin-guidance", [{"name": "guidance-conventions"}])
-        result = run_check(repo, "--repo", str(repo))
+        repo = self.pinned_repo("guidance-pinned", "guidance-conventions--v0.0.1")
+        result = run_check(repo)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("0.0.1", result.stdout)
-        self.assertIn("claude plugin update", result.stdout)
-        self.assertIn("guidance_check.py", result.stdout)
+        self.assertIn(f"claude plugin marketplace update {GUIDANCE_NAME}", result.stdout)
+        self.assertIn(f"claude plugin update guidance-conventions@{GUIDANCE_NAME}", result.stdout)
 
     def test_pin_match_exits_zero(self):
         version = guidance_check.guidance_plugin_version()
-        repo = make_git_repo(self.tmp / "guidance-match",
-                             tag=f"guidance-conventions--v{version}")
-        build_marketplace(repo, "claude-plugin-guidance", [{"name": "guidance-conventions"}])
-        result = run_check(repo, "--repo", str(repo))
+        repo = self.pinned_repo("guidance-match", f"guidance-conventions--v{version}")
+        result = run_check(repo)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("PIN", result.stdout)
 
     def test_missing_pin_warns_and_exits_zero(self):
-        repo = make_git_repo(self.tmp / "guidance-unpinned")
-        build_marketplace(repo, "claude-plugin-guidance", [{"name": "guidance-conventions"}])
-        result = run_check(repo, "--repo", str(repo))
+        repo = self.pinned_repo("guidance-unpinned")
+        result = run_check(repo)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("WARN", result.stdout)
         self.assertIn("PIN", result.stdout)
+        self.assertIn("results can differ between authors", result.stdout)
+
+    def test_unreadable_settings_exits_two(self):
+        repo = self.pinned_repo("guidance-bad-settings")
+        write(repo / ".claude" / "settings.json", "{not json")
+        result = run_check(repo)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("PIN", result.stdout)
+
+    def test_pin_defaults_to_the_checked_directory_and_repo_overrides_it(self):
+        version = guidance_check.guidance_plugin_version()
+        checked = self.pinned_repo("guidance-checked", "guidance-conventions--v0.0.1")
+        pinned = self.pinned_repo("guidance-elsewhere", f"guidance-conventions--v{version}")
+        self.assertEqual(run_check(checked).returncode, 2)
+        result = run_check(checked, "--repo", str(pinned))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_no_pin_skips_the_pin_check(self):
-        repo = make_git_repo(self.tmp / "guidance-skip", tag="guidance-conventions--v0.0.1")
-        build_marketplace(repo, "claude-plugin-guidance", [{"name": "guidance-conventions"}])
-        result = run_check(repo, "--repo", str(repo), "--no-pin")
+        repo = self.pinned_repo("guidance-skip", "guidance-conventions--v0.0.1")
+        result = run_check(repo, "--no-pin")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_guidance_dependency_is_reported_by_a8_only(self):
+        root = build_marketplace(self.tmp / "acme-web-guidance-dep", "acme-web", [
+            {"name": "acme-audit", "concept": True, "deps": [
+                {"name": "guidance-activation-check", "marketplace": GUIDANCE_NAME, "version": "^2.0.0"}]},
+        ])
+        result = run_check(root, "--no-pin")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("A8", result.stdout)
+        self.assertNotIn("X-resolve", result.stdout)
+        compiled = run_check(root, "--compile", "--no-pin")
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        self.assertEqual(load_json(root / "concept-graph.json")["upstreams"], [])
+
+    def test_invalid_plugin_prefix_blocks_before_compile(self):
+        root = build_marketplace(self.tmp / "bad-prefix-command", "acme-core",
+                                 [{"name": "acme-core-build", "concept": True}],
+                                 metadata={"pluginPrefix": "-acme"})
+        result = run_check(root, "--compile", "--no-pin")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("F-schema", result.stdout)
+        self.assertFalse((root / "concept-graph.json").exists())
 
     def test_missing_upstream_exits_two(self):
         beta = build_marketplace(self.tmp / "beta-command", "beta-core", [
@@ -489,6 +613,61 @@ class CommandTests(unittest.TestCase):
         written = load_json(beta / "concept-graph.json")
         self.assertEqual(written["upstreams"][0]["graphHash"],
                          compile(Marketplace.load(alpha))["graphHash"])
+
+
+class PinTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="gc-pin-")
+        self.repo = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_read_pin_returns_the_version_in_the_guidance_ref(self):
+        write_settings(self.repo, "guidance-conventions--v1.2.3")
+        self.assertEqual(guidance_check.read_pin(self.repo), "1.2.3")
+
+    def test_read_pin_is_none_without_a_guidance_conventions_tag(self):
+        self.assertIsNone(guidance_check.read_pin(self.repo))
+        for ref in (None, "v1.2.3", "guidance-conventions--v", "other--v1.0.0"):
+            with self.subTest(ref=ref):
+                write_settings(self.repo, ref)
+                self.assertIsNone(guidance_check.read_pin(self.repo))
+        write_settings(self.repo, "guidance-conventions--v1.0.0", marketplace="another-marketplace")
+        self.assertIsNone(guidance_check.read_pin(self.repo))
+
+    def test_malformed_settings_is_cannot_run(self):
+        write(self.repo / ".claude" / "settings.json", "{not json")
+        with self.assertRaises(guidance_check.CannotRun) as ctx:
+            guidance_check.read_pin(self.repo)
+        self.assertEqual(ctx.exception.check, "PIN")
+
+    def test_check_pin_matching_version_adds_no_finding(self):
+        write_settings(self.repo, "guidance-conventions--v2.0.0")
+        findings = []
+        guidance_check.check_pin(self.repo, "2.0.0", findings)
+        self.assertEqual(findings, [])
+
+    def test_check_pin_without_a_pin_warns_and_does_not_block(self):
+        findings = []
+        guidance_check.check_pin(self.repo, "2.0.0", findings)
+        self.assertEqual([(f.check, f.severity) for f in findings], [("PIN", "warn")])
+        self.assertFalse(findings[0].blocking)
+        self.assertIn("results can differ between authors", findings[0].message)
+
+    def test_check_pin_mismatch_is_cannot_run_naming_the_pin_and_both_commands(self):
+        write_settings(self.repo, "guidance-conventions--v1.0.0")
+        with self.assertRaises(guidance_check.CannotRun) as ctx:
+            guidance_check.check_pin(self.repo, "2.0.0", [])
+        self.assertEqual(ctx.exception.check, "PIN")
+        self.assertIn("1.0.0", ctx.exception.message)
+        self.assertIn(f"claude plugin marketplace update {GUIDANCE_NAME}", ctx.exception.fix)
+        self.assertIn(f"claude plugin update guidance-conventions@{GUIDANCE_NAME}", ctx.exception.fix)
+
+    def test_check_pin_without_a_repository_does_nothing(self):
+        findings = []
+        guidance_check.check_pin(None, "2.0.0", findings)
+        self.assertEqual(findings, [])
 
 
 if __name__ == "__main__":

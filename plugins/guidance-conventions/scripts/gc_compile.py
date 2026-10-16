@@ -48,7 +48,15 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from gc_model import COMPILED_FILE, GRAPH_SPEC_VERSION, INTERACTIONS, ROLES, Marketplace, qualifier
+from gc_model import (
+    COMPILED_FILE,
+    GRAPH_SPEC_VERSION,
+    INTERACTIONS,
+    ROLES,
+    Marketplace,
+    graph_spec_version_problem,
+    qualifier,
+)
 
 HASH_PREFIX = "sha256:"
 
@@ -82,9 +90,26 @@ def write_compiled(root, graph: Dict[str, Any]) -> Path:
     return path
 
 
+def _read_spec_versions(marketplace: Marketplace) -> None:
+    """Compile reads graphSpecVersion from every declaration it composes.
+
+    An unsupported version raises CannotRun (exit 2) from graph_spec_version_problem. A malformed
+    value is not decided here: it is left for F-schema to block, so the return value is ignored.
+    """
+    for concept in marketplace.concepts.values():
+        for node, where in ((concept.graph, concept.skill_relpath), (concept.contract, concept.contract_relpath)):
+            if isinstance(node, dict) and "graphSpecVersion" in node:
+                graph_spec_version_problem(node["graphSpecVersion"], where)
+    for realization in marketplace.realizations:
+        graph = realization.graph
+        if isinstance(graph, dict) and "graphSpecVersion" in graph:
+            graph_spec_version_problem(graph["graphSpecVersion"], realization.skill_relpath)
+
+
 def compile(marketplace: Marketplace, upstreams: Optional[Dict[str, Marketplace]] = None,
             _stack: Tuple[str, ...] = ()) -> Dict[str, Any]:
     """Compile marketplace. Raises CompileError for anything that cannot be compiled."""
+    _read_spec_versions(marketplace)
     upstreams = upstreams or {}
     name = marketplace.name
     if name in _stack:

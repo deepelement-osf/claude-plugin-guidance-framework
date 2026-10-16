@@ -5,31 +5,52 @@
     "email": "maintainers@acme.example"
   },
   "description": "Web refinements and an observer built on the acme-core marketplace.",
-  "allowCrossMarketplaceDependenciesOn": ["acme-core"],
+  "metadata": {
+    "pluginPrefix": "web"
+  },
+  "allowCrossMarketplaceDependenciesOn": [
+    "acme-core"
+  ],
   "plugins": [
     {
-      "name": "acme-nextjs-build",
-      "source": "./plugins/acme-nextjs-build",
+      "name": "web-nextjs-build",
+      "source": "./plugins/web-nextjs-build",
       "description": "Refines the build phase for Next.js projects.",
       "dependencies": [
-        {"name": "acme-build", "marketplace": "acme-core", "version": "^1.0.0"}
+        {
+          "name": "acme-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
       ]
     },
     {
-      "name": "acme-nextjs-lint",
-      "source": "./plugins/acme-nextjs-lint",
+      "name": "web-nextjs-lint",
+      "source": "./plugins/web-nextjs-lint",
       "description": "Refines the build phase with a lint pass that runs after the Next.js build.",
       "dependencies": [
-        {"name": "acme-build", "marketplace": "acme-core", "version": "^1.0.0"}
+        {
+          "name": "acme-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
       ]
     },
     {
-      "name": "acme-audit",
-      "source": "./plugins/acme-audit",
+      "name": "web-audit",
+      "source": "./plugins/web-audit",
       "description": "Observes every phase and records that the phase concluded.",
       "dependencies": [
-        {"name": "acme-build", "marketplace": "acme-core", "version": "^1.0.0"},
-        {"name": "acme-deliver", "marketplace": "acme-core", "version": "^1.0.0"}
+        {
+          "name": "acme-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        },
+        {
+          "name": "acme-deliver",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
       ]
     }
   ]

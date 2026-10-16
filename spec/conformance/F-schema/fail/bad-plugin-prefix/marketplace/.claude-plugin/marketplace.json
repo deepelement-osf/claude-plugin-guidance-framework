@@ -1,0 +1,18 @@
+{
+  "name": "acme-core",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Core phases for the conformance fixtures.",
+  "metadata": {
+    "pluginPrefix": "-acme"
+  },
+  "plugins": [
+    {
+      "name": "acme-build",
+      "source": "./plugins/acme-build",
+      "description": "The build phase: turns a goal into a deliverable."
+    }
+  ]
+}

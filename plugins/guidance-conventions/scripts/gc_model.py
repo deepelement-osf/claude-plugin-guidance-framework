@@ -12,6 +12,9 @@ Constants
     INTERACTIONS       ("autonomous", "pause", "conversational")
     COMPILED_FILE      "concept-graph.json"
     WORKSPACE_QUALIFIER "workspace"
+    GUIDANCE_MARKETPLACE "claude-plugin-guidance". A dependency on it is never an
+        upstream; A8 reports it.
+    PLUGIN_PREFIX        the pattern a declared pluginPrefix must fully match.
 
 Finding(check, severity, file, message, fix="")
     One result. severity is "block" or "warn". file is a path relative to the
@@ -37,7 +40,13 @@ Context(root, marketplace, upstreams, previous_graph, options, guidance_version)
 
 concept_name(plugin_name, prefix) -> str
     A concept's name is its plugin's name without "<prefix>-". The prefix is
-    the first hyphen-separated segment of the marketplace name.
+    Marketplace.prefix: metadata.pluginPrefix of .claude-plugin/marketplace.json
+    when declared, else the first hyphen-separated segment of the marketplace
+    name. A plugin whose name does not start with "<prefix>-" gets an M2 warning,
+    and its concept is named by its full plugin name.
+    Whether "claude plugin validate" accepts the metadata key is UNVERIFIED
+    (a spike). Until that spike runs, the official check is the only place that
+    could object to it.
 qualifier(ref) -> str | None
     The marketplace part of "<concept>@<marketplace>".
 declared_references(graph) -> list[(field, ref)]
@@ -53,10 +62,11 @@ plugin of the same marketplace and has marketplace None.
 """
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from gc_parse import SkillDoc, load_json, participation_bullets, read_skill, realizes_block
 
@@ -64,7 +74,42 @@ GRAPH_SPEC_VERSION = "1.0"
 ROLES = ("phase", "entry", "refinement", "observer")
 INTERACTIONS = ("autonomous", "pause", "conversational")
 COMPILED_FILE = "concept-graph.json"
+
+
+class CannotRun(Exception):
+    """The check cannot run to a verdict. The command exits 2."""
+
+    def __init__(self, check: str, message: str, fix: str = ""):
+        super().__init__(message)
+        self.check = check
+        self.message = message
+        self.fix = fix
+
+
+_SPEC_VERSION_FORM = re.compile(r"[0-9]+\.[0-9]+\Z")
+
+
+def graph_spec_version_problem(value: Any, where: str) -> Optional[str]:
+    """Check one graphSpecVersion read from where. Returns None for the supported version.
+
+    A value that is not a version (MAJOR.MINOR text) returns a message, which F-schema reports as a block.
+    A well-formed version the script does not support raises CannotRun, which exits 2: the script
+    cannot judge the file, so the guidance must be updated, and the message names the supported range.
+    """
+    if isinstance(value, str) and _SPEC_VERSION_FORM.match(value):
+        if value == GRAPH_SPEC_VERSION:
+            return None
+        raise CannotRun(
+            "F-schema",
+            f"{where} has graphSpecVersion {value!r}, which is outside the range this script supports: "
+            f"{GRAPH_SPEC_VERSION!r} only; the script cannot judge the file",
+            f"update the guidance (claude-plugin-guidance-framework) to a version that supports "
+            f"graphSpecVersion {value!r}, then run again")
+    return (f"{where} has graphSpecVersion {value!r}, which is not a version such as "
+            f"{GRAPH_SPEC_VERSION!r}; write it as {GRAPH_SPEC_VERSION!r}")
 WORKSPACE_QUALIFIER = "workspace"
+GUIDANCE_MARKETPLACE = "claude-plugin-guidance"
+PLUGIN_PREFIX = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 _REFERENCE_FIELDS = ("refines", "observes", "uses", "handoff", "after", "replaced_by")
 
@@ -142,6 +187,56 @@ def concept_name(plugin_name: str, prefix: str) -> str:
     if plugin_name.startswith(stem) and len(plugin_name) > len(stem):
         return plugin_name[len(stem):]
     return plugin_name
+
+
+def dependency_closure(start: "Marketplace", upstreams: Dict[str, "Marketplace"]) -> Set[str]:
+    """Every marketplace name reachable from start through declared plugin dependencies.
+
+    start itself is left out. A name is included even when no upstream was loaded for it,
+    so callers can tell an undeclared name from a declared one.
+    """
+    names: Set[str] = set()
+    seen = {start.name}
+    stack = [start]
+    while stack:
+        current = stack.pop()
+        for plugin in current.plugins.values():
+            for dep in plugin.dependencies:
+                target = dep.get("marketplace")
+                if not target:
+                    continue
+                names.add(target)
+                if target not in seen:
+                    seen.add(target)
+                    upstream = upstreams.get(target)
+                    if upstream is not None:
+                        stack.append(upstream)
+    names.discard(start.name)
+    return names
+
+
+def realization_in_chain(name: str, concept_ref: Optional[str], marketplace: "Marketplace",
+                         upstreams: Dict[str, "Marketplace"],
+                         exclude: Optional["Realization"] = None) -> bool:
+    """True when a realization named name realizes concept_ref in marketplace or an upstream it reaches.
+
+    This is the one lookup behind builds_on: F-tier3 (shape) and X-resolve (chain) both call it.
+    exclude is a realization that must not count as its own target.
+    """
+    if concept_ref is None:
+        return False
+    chain = [marketplace]
+    for upstream_name in sorted(dependency_closure(marketplace, upstreams)):
+        upstream = upstreams.get(upstream_name)
+        if upstream is not None:
+            chain.append(upstream)
+    for market in chain:
+        for other in market.realizations:
+            if other is exclude:
+                continue
+            if other.name == name and other.concept_ref == concept_ref:
+                return True
+    return False
 
 
 def is_marketplace_repository(directory) -> bool:
@@ -258,11 +353,11 @@ class Marketplace:
         self.root = root
         self.manifest = manifest
         self.name: str = manifest["name"]
-        self.prefix: str = self.name.split("-", 1)[0]
         self.plugins: Dict[str, Plugin] = {}
         self.concepts: Dict[str, Concept] = {}
         self.realizations: List[Realization] = []
         self.findings: List[Finding] = []
+        self.prefix: str = self._declared_prefix()
         self.compiled: Optional[dict] = None
         self.compiled_path: Path = root / COMPILED_FILE
 
@@ -296,6 +391,32 @@ class Marketplace:
         file = self.rel(path) if path is not None else None
         self.findings.append(Finding(check, severity, file, message, fix))
 
+    def _declared_prefix(self) -> str:
+        """The plugin-name prefix: metadata.pluginPrefix when declared, else the name's first segment.
+
+        A declared prefix that is not a valid prefix, or a metadata value that
+        is not an object, is an F-schema block. The default is used for the rest
+        of the load, so that the other checks still run.
+        """
+        default = self.name.split("-", 1)[0]
+        manifest_path = self.root / ".claude-plugin" / "marketplace.json"
+        metadata = self.manifest.get("metadata")
+        if metadata is None:
+            return default
+        if not isinstance(metadata, dict):
+            self._find("F-schema", "block", manifest_path, "'metadata' must be an object",
+                       "make 'metadata' an object, or remove it")
+            return default
+        if "pluginPrefix" not in metadata:
+            return default
+        prefix = metadata["pluginPrefix"]
+        if not isinstance(prefix, str) or not PLUGIN_PREFIX.fullmatch(prefix):
+            self._find("F-schema", "block", manifest_path,
+                       f"metadata.pluginPrefix {prefix!r} is not a valid prefix",
+                       "use lowercase letters, digits and single hyphens, not starting or ending with a hyphen")
+            return default
+        return prefix
+
     def _read_json(self, path: Path) -> Optional[Any]:
         if not path.is_file():
             return None
@@ -324,6 +445,12 @@ class Marketplace:
                 self._find("F-files", "block", self.root / ".claude-plugin" / "marketplace.json",
                            f"two plugin entries are named {name!r}", "give each plugin a unique name")
                 continue
+            if not name.startswith(self.prefix + "-"):
+                self._find("M2", "warn", self.root / ".claude-plugin" / "marketplace.json",
+                           f"plugin {name!r} does not start with the marketplace prefix {self.prefix + '-'!r}; "
+                           "its concept is named by its full plugin name",
+                           f"name the plugin {self.prefix}-{name}, or declare the prefix in "
+                           "metadata.pluginPrefix")
             source = entry.get("source")
             plugin_dir = self._plugin_dir(name, source)
             plugin = Plugin(name=name, entry=entry,
@@ -495,6 +622,9 @@ class Marketplace:
         names.discard(None)
         names.discard(self.name)
         names.discard(WORKSPACE_QUALIFIER)
+        # A dependency on guidance is not an upstream: the compile and the upstream
+        # chain skip it, and A8 reports the dependency as a block.
+        names.discard(GUIDANCE_MARKETPLACE)
         return sorted(names)
 
     def compiled_upstream_names(self) -> List[str]:

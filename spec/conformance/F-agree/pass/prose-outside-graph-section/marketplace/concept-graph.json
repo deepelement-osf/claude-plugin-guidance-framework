@@ -1,6 +1,6 @@
 {
   "capabilities": [],
-  "graphHash": "sha256:81fbbe8bd16da9f6b31e1e102c8052a03fb2cb38edca9378d5aa31267e533074",
+  "graphHash": "sha256:7432fea4d1989b645afc87e76752542d4e9e0e9e8095ae2e46ad223fbe34e6c8",
   "graphSpecVersion": "1.0",
   "marketplace": "acme-web",
   "nodes": [
@@ -25,7 +25,7 @@
         "role": "phase"
       },
       "on": "concluded",
-      "plugin": "acme-audit",
+      "plugin": "web-audit",
       "realizations": [
         {
           "builds_on": null,
@@ -63,7 +63,7 @@
       },
       "id": "nextjs-build@acme-web",
       "interaction": "autonomous",
-      "plugin": "acme-nextjs-build",
+      "plugin": "web-nextjs-build",
       "realizations": [
         {
           "builds_on": null,
@@ -105,7 +105,7 @@
       },
       "id": "nextjs-lint@acme-web",
       "interaction": "autonomous",
-      "plugin": "acme-nextjs-lint",
+      "plugin": "web-nextjs-lint",
       "realizations": [
         {
           "builds_on": null,

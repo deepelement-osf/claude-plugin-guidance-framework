@@ -1,8 +1,0 @@
-{
-  "name": "acme-nextjs-lint",
-  "version": "1.0.0",
-  "description": "Refines the build phase with a lint pass that runs after the Next.js build.",
-  "author": {
-    "name": "Acme Example"
-  }
-}

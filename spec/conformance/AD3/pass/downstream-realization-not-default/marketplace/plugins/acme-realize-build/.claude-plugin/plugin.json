@@ -1,8 +1,0 @@
-{
-  "name": "acme-realize-build",
-  "version": "1.0.0",
-  "description": "Script realization of the build phase, offered to workspaces that select it.",
-  "author": {
-    "name": "Acme Example"
-  }
-}

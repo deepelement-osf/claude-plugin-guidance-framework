@@ -606,8 +606,12 @@ def _is_number(value: Any) -> bool:
 
 
 def _is_bound(value: Any) -> bool:
-    """A bound is a finite JSON number. NaN and Infinity are not JSON, and a boolean is not a number."""
-    return _is_number(value) and math.isfinite(value)
+    """A bound is a finite JSON number. NaN and Infinity are not JSON, and a boolean is not a number.
+
+    An int is always finite. math.isfinite is applied only to a float, because it raises OverflowError
+    for an int too large to convert to a float, and a long integer literal is still a finite JSON number.
+    """
+    return _is_number(value) and (isinstance(value, int) or math.isfinite(value))
 
 
 def keyword_value_problems(schema: dict) -> List[str]:

@@ -358,6 +358,17 @@ class SchemaSubsetTests(unittest.TestCase):
                 with self.assertRaises(SchemaSubsetError):
                     validate_json_schema(1, schema)
 
+    def test_a_bound_too_large_for_a_float_is_still_a_finite_number(self):
+        # A long integer literal is a finite JSON number, so it is accepted; it must not raise
+        # OverflowError, which math.isfinite raises for an int too large to become a float.
+        big = 10 ** 400
+        self.assertValid(big, {"maximum": big})
+        self.assertValid(-big, {"minimum": -big})
+        self.assertValid(big - 1, {"exclusiveMaximum": big})
+        self.assertInvalid(big, {"exclusiveMaximum": big})
+        # 1 is below 10 ** 400, so it is an error from the bound, not a crash.
+        self.assertInvalid(1, {"minimum": big})
+
     def test_a_bound_outside_a_numeric_instance_is_still_checked_as_a_schema(self):
         # The schema is refused whatever the instance is, so a bad bound never hides.
         with self.assertRaises(SchemaSubsetError):

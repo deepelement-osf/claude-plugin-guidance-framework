@@ -880,6 +880,31 @@ class OfficialTests(unittest.TestCase):
             self.run_official()
         self.assertEqual(raised.exception.check, "F-official")
 
+    def test_a_validator_that_refuses_json_is_a_could_not_run_naming_the_minimum_version(self):
+        self.fake_claude("echo \"error: unknown option '--json'\" >&2\nexit 1\n")
+        with self.assertRaises(CannotRun) as raised:
+            self.run_official()
+        self.assertEqual(raised.exception.check, "F-official")
+        self.assertIn(guidance_check.CLAUDE_CODE_MINIMUM, raised.exception.message)
+        self.assertIn("older than 2.1.259", raised.exception.message)
+        self.assertIn("unknown option '--json'", raised.exception.message)
+        self.assertIn(guidance_check.CLAUDE_CODE_MINIMUM, raised.exception.fix)
+
+    def test_unrecognized_json_argument_wording_is_also_a_could_not_run(self):
+        self.fake_claude("echo \"error: unrecognized argument '--json'\" >&2\nexit 1\n")
+        with self.assertRaises(CannotRun) as raised:
+            self.run_official()
+        self.assertIn("2.1.259", raised.exception.message)
+
+    def test_an_unknown_option_other_than_json_stays_a_validator_block(self):
+        self.fake_claude("echo \"error: unknown option '--strictly'\" >&2\nexit 1\n")
+        findings = self.run_official()
+        self.assertEqual([(f.check, f.severity) for f in findings], [("F-official", "block")])
+
+    def test_the_minimum_version_is_the_one_the_architecture_doc_records(self):
+        doc = (Path(__file__).resolve().parent.parent / "docs" / "architecture.md").read_text(encoding="utf-8")
+        self.assertIn(f"Claude Code {guidance_check.CLAUDE_CODE_MINIMUM}", doc)
+
     def test_no_official_skips_the_validator(self):
         findings: list = []
         with mock.patch.dict(os.environ, {"PATH": str(self.bin)}):

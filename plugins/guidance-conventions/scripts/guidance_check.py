@@ -46,6 +46,7 @@ main(argv=None) -> int
 import argparse
 import importlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -171,6 +172,21 @@ def load_previous(options: Options) -> Optional[dict]:
 
 OFFICIAL_TIMEOUT_SECONDS = 60
 
+# The first Claude Code release whose "claude plugin validate" accepts --json. Its changelog has
+# "Added --json to claude plugin validate" under 2.1.259, the only entry that adds the flag. The
+# flag is also in the help text of 2.1.301, the release the check was verified with.
+CLAUDE_CODE_MINIMUM = "2.1.259"
+_UNKNOWN_JSON = re.compile(r"(?:unknown|unrecognized) (?:option|argument)[^\n]*--json", re.IGNORECASE)
+
+
+def _json_flag_refusal(result) -> Optional[str]:
+    """The line of the validator's output that refuses --json, or None. An older Claude Code refuses it."""
+    for text in (result.stderr or "", result.stdout or ""):
+        for line in text.splitlines():
+            if _UNKNOWN_JSON.search(line):
+                return line.strip()
+    return None
+
 
 def _validator_entries(node) -> List[Tuple[str, str, str]]:
     """(severity, where, message) for every error and warning in a validator report, at any depth.
@@ -227,7 +243,8 @@ def official_findings(root, options: Options, findings: List[Finding]) -> None:
     The validator is started with a list of arguments, never through a shell, and with
     no standard input, so it cannot wait for an interactive session. A missing binary,
     a start failure or a run longer than OFFICIAL_TIMEOUT_SECONDS is a could-not-run
-    result (CannotRun, exit 2). A failure is a block whose message names every error and
+    result (CannotRun, exit 2), and so is a validator that refuses --json, which means a
+    Claude Code older than CLAUDE_CODE_MINIMUM; that message names the minimum version. A failure is a block whose message names every error and
     warning the validator reported, so the finding says what to fix.
     """
     if options.no_official:
@@ -247,6 +264,13 @@ def official_findings(root, options: Options, findings: List[Finding]) -> None:
     except OSError as exc:
         raise CannotRun("F-official", f"claude plugin validate cannot be started: {exc}",
                         "check the Claude Code installation") from None
+    refusal = _json_flag_refusal(result) if result.returncode != 0 else None
+    if refusal is not None:
+        raise CannotRun(
+            "F-official",
+            f"claude plugin validate does not accept --json, so this Claude Code is older than "
+            f"{CLAUDE_CODE_MINIMUM}, the first release with that flag (the validator said: {refusal})",
+            f"upgrade Claude Code to {CLAUDE_CODE_MINIMUM} or later, or pass --no-official to skip the official validation")
     if result.returncode != 0:
         findings.append(Finding(
             "F-official", "block", None,

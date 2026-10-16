@@ -29,7 +29,8 @@ graph use it, and one release has passed with no MAJOR schema change.
 - `checks.md` is the check catalog. For each check id it states the pass
   and fail conditions, the severity, whether the check is mechanical or a
   judgement call, its scope (`marketplace`, `workspace` or `both`), and
-  what implements it (`script` or `skill`).
+  what implements it (`script`, `skill`, or an implementation of the
+  workspace-side checks).
 - `conformance/` holds the conformance cases, one directory per check id.
 
 A schema says what shape a file has. Rules that need more than one file,
@@ -45,8 +46,10 @@ checks instead.
   plugin's version and from `contractVersion`.
 - The compliance script declares the range of `graphSpecVersion` it
   supports. A workspace runtime declares its own range too.
-- A file outside a declared range is refused. The message names the
-  upgrade that is needed.
+- A file whose `graphSpecVersion` is outside the supported range exits `2`.
+  The message names the supported range and the upgrade that is needed.
+  A malformed value is a block under F-schema. The rule is in
+  [checks.md](checks.md).
 
 ## The JSON Schema subset
 
@@ -91,6 +94,38 @@ them with the standard library only, and it reads this subset:
 Anchors and aliases, tags, multi-line strings (`|` and `>`), and flow
 collections nested inside other flow collections are outside the subset.
 Compiled graphs are JSON, so the subset does not apply to them.
+
+## Fold values
+
+A refinement contract with `selection: many` names one fold. Each selected
+realization runs as its own step, in the order the workspace lists them, and
+the results fold by the named value. Phases and entries take `selection: one`
+only, so they have no fold (F-selection).
+
+- `all`: the refinement passes only when every selected realization passes.
+  The results are reported in listed order.
+- `collect`: the results are gathered, in listed order, into one list, each
+  result with the name of its realization, for the next step. Nothing is
+  judged.
+- `worst-outcome`: the outcome is the worst of the results, worst first:
+  `failed`, `could-not-be-evaluated`, `passed`, `did-not-apply`.
+
+The schema for the contract is `schemas/graph-contract.schema.json`.
+
+## Upstream resolution
+
+The script resolves each upstream in this order, and the first step that
+finds it is used:
+
+1. Claude Code's registered copy, if it is at the recorded version.
+2. The script's cache under `${CLAUDE_PLUGIN_DATA}`, or
+   `~/.cache/guidance-conventions` when that is unset.
+3. A git fetch of the `<plugin>--v<version>` tag from the source in the
+   committed settings.
+
+`--upstreams DIR` replaces all three steps. The directory is the only source.
+The conformance cases use it, so they never reach the network. A failure to
+resolve any upstream exits `2` under X-resolve.
 
 ## Conformance cases
 

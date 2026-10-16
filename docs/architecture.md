@@ -188,8 +188,7 @@ Every plugin in a published marketplace's `plugins/` directory that
 follows this pattern is a concept plugin and represents one abstract
 capability ("Concept"), named for what it does, not for how it's
 implemented — e.g. `acme-secrets`, not `acme-aws-secrets-manager`. A
-concept's name is its plugin's name without the marketplace's
-single-segment prefix: `secrets` for `acme-secrets`. Concepts are
+concept's name is its plugin's name without the marketplace's prefix and its hyphen: `secrets` for `acme-secrets`. The prefix is `metadata.pluginPrefix` in the marketplace's `.claude-plugin/marketplace.json`. When that key is absent, the prefix is the first hyphen-delimited segment of the marketplace's `name`. A plugin whose name does not start with the prefix keeps its full plugin name as its concept name. UNVERIFIED: whether `claude plugin validate --strict` accepts the `metadata.pluginPrefix` key has not been checked against the CLI. Concepts are
 siblings: none depends on another's internal structure. A concept may
 *reference* another concept by name alone (see §5) without knowing or
 caring which realization backs it in a given workspace.
@@ -285,11 +284,7 @@ case, and only one level deep: `realize-<name>/` directly under
 (§10): a workspace may keep whatever else it likes elsewhere, and
 guidance does not look. A realization kept elsewhere is simply not a
 candidate a workspace runtime will find, so a selection that names it is
-reported as stale (§6). `validate-concept-plugin` check B4 reports a
-workspace-authored realization outside this location as an error, and B1
-does the same for a selected skill whose `realizes` block is missing or
-malformed, which the check cannot find either. It checks nothing else
-about where a workspace keeps its skills.
+reported as stale (§6). The workspace-side check B4 (see [spec/checks.md](../spec/checks.md), Set B) reports a workspace-authored realization outside this location as an error, and B1 does the same for a selected skill whose `realizes` block is missing or malformed, which the workspace cannot find either. Nothing else about where a workspace keeps its skills is checked.
 
 A workspace-authored realization with the same name as an installed one
 wins; see "Defaults and collisions" in §10.
@@ -464,9 +459,7 @@ written.
 
 If a concept *does* ship one or more Tier 3 realizations, the existing
 rules still apply in full: Tier 2 must exist and be published, and
-exactly one realization must be marked as the default (e.g. via a
-`default: true` marker in the contract or an explicit note in the
-concept skill), so a workspace that installs a concept with any shipped
+exactly one realization must carry `default: true` in the frontmatter of its `realize-*` SKILL.md (§7), so a workspace that installs a concept with any shipped
 realizations can use it immediately, without first having to author or
 select one — they may still need to fill in required `config` values,
 which is the activation check's job to surface (§6), not a reason the
@@ -543,14 +536,7 @@ have no idea which one is active — it fails even if
 realization today, because that binding is exactly what
 `marketplace-plugin-settings.yml` and the activation check exist to
 resolve, and it can change without this instruction text being updated
-to match. `validate-concept-plugin`'s cross-concept reference check
-(check C) scans for this pattern and runs proactively any time a Tier 1
-or Tier 3 file is authored or edited, not only on an explicit audit
-request — see that skill for the mechanical check. Its check C3 accepts
-the qualified form where the bare name is ambiguous, reports it as
-"unverified" where ambiguity could arise from plugins it cannot see, and
-reports any other departure from the table above as a non-blocking style
-finding.
+to match. The workspace-side checks in [spec/checks.md](../spec/checks.md), Set C, scan for this pattern in a consuming workspace. Check C3 accepts the qualified form where the bare name is ambiguous, and reports any other departure from the table above as a non-blocking style finding.
 
 ### 6. Activation check: a shared convention, not a hook
 
@@ -781,9 +767,7 @@ these conventions.
   `schema.json`. A realization plugin never declares
   `guidance-activation-check` as a dependency (§10), and a workspace-authored
   realization has no plugin to declare it in (§2).
-- If a realization is the concept's pinned default (§4), say so
-  explicitly in its SKILL.md (not only in the concept skill), so anyone
-  reading the realization file directly still knows its status.
+- `default: true`, on the one realization that is the concept's default (§4). A realization of an ancestor's concept never carries it.
 
 - Each realization's `SKILL.md` frontmatter declares a `graph:` key (§12):
   - `graphSpecVersion: "1.0"`;
@@ -828,7 +812,7 @@ file instead of embedded narrative in SKILL.md.
 
 ### 8. One concept, one realization contract — the split rule
 
-**Every concept plugin has exactly one Tier 2 realization contract.** If
+**A concept plugin has at most one Tier 2 realization contract.** If
 a concept's realizations don't all naturally satisfy one shared
 `schema.json`, that isn't a reason to add a second contract to the same
 plugin — it's a sign the plugin is actually two concepts.
@@ -1023,11 +1007,7 @@ section) and set AD (AD1-AD3, the additive-only rule). The first
 finding in them as a warning. The release that makes them block (see the
 release tags) can fail a published marketplace, or a realization
 marketplace (set U only), that an earlier release passed.
-Three findings stay non-blocking: an open-ended version range (U2), a
-README range that differs from the entry's (U4), and an upstream
-published marketplace that is not on disk (AD2, "unverified"), because
-they report a range the validator does not parse, README wording, or
-something it could not read.
+Two findings stay non-blocking: an open-ended version range (U2), and a README range that differs from the entry's (U4), because they report a range the validator does not parse, or README wording.
 
 To migrate, fix what the finding names:
 
@@ -1104,8 +1084,7 @@ acme-aws-realizations/                       # marketplace name
   second copy of the contract would be a second contract (§8).
 - A plugin targets exactly one concept and may ship several `realize-*`
   skills for it.
-- `<prefix>-realize-<concept>` is the recommended plugin name, with the
-  realization marketplace's own prefix. It is a recommendation, and it
+- `<prefix>-realize-<concept>` is the recommended plugin name, with the realization marketplace's own prefix (§1). It is a recommendation, and it
   never starts with `guidance-`, which names only the guidance
   marketplace's own plugins.
 - Skills are namespaced by their plugin, for example
@@ -1145,8 +1124,7 @@ contractVersion: "^1.1.0"
 - The block is required in a realization marketplace and in a
   workspace-authored realization. It is recommended in the realizations
   the defining marketplace ships in its own concept plugin.
-- There is no default marker. The defining plugin is the entry dependency
-  (next section) whose marketplace equals the qualifier in `concept`.
+- The block carries no default marker. A realization here is never the default (§4). The defining plugin is the entry dependency (next section) whose marketplace equals the qualifier in `concept`.
 
 #### Dependency, allowlist and README
 
@@ -1467,8 +1445,7 @@ Observers of the node run after conclude. They cannot change anything above.
 - For a capability, every selected realization loads into the session.
 - A phase or entry stays `selection: one`, because frame and conclude need one
   owner.
-- `worst-outcome` takes the worst outcome, as a gate does. The spec states what
-  `all` and `collect` return.
+- `worst-outcome` takes the worst outcome, worst first: `failed`, `could-not-be-evaluated`, `passed`, `did-not-apply`. `all` passes only when every selected result passes. `collect` gathers the results, in listed order, for the next step. [spec/README.md](../spec/README.md#fold-values) states each value.
 
 #### Scoped selection
 
@@ -1484,9 +1461,7 @@ Observers of the node run after conclude. They cannot change anything above.
   the same concept, such as `builds_on: basic-session`.
 - A layer satisfies the same contract. The workspace runtime loads the base
   realization's skill first, then the layer's.
-- Selecting a layer brings in its base. The base must be visible: in the same
-  marketplace, in an ancestor, in a realization marketplace in the stack, or
-  in the workspace.
+- Selecting a layer brings in its base. The base is a realization of the same concept in the same marketplace, or in an ancestor reached through a declared dependency. A base in a sibling or downstream marketplace is refused.
 - A layer's own settings sit under its name, against its own schema.
 - A layer is allowed wherever a realization is, including a downstream
   marketplace layering on an ancestor's realization. It is never the default
@@ -1532,8 +1507,7 @@ Only a concept's own marketplace may change its lifecycle.
 - **conversational:** a live session with the operator. The workspace runtime
   refuses it, and the checks warn, until a deferred session can be resumed
   with the operator's answer.
-- A refinement is a scheduled session, so it may use any of the three values.
-  It inherits no interaction limit from its parent.
+- A refinement is a scheduled session, so it may use any of the three values. The checks warn on `conversational`, which the workspace runtime refuses. It inherits no interaction limit from its parent.
 
 #### Runs and declared effects
 
@@ -1555,14 +1529,11 @@ Only a concept's own marketplace may change its lifecycle.
 #### Declaration format
 
 - The declaration is one top-level `graph:` key in the frontmatter of
-  `skills/concept/SKILL.md`. Its YAML is block style only: nested maps, block
-  lists, flow lists of scalars, flow maps of scalars, and plain or
-  double-quoted scalars. It has no anchors and no multi-line strings.
+  `skills/concept/SKILL.md`. Its YAML is the subset in [spec/README.md](../spec/README.md#the-yaml-subset): block-style maps and lists, flow lists and flow maps of scalars, and plain or double-quoted scalars. It has no anchors, tags, aliases, multi-line strings or nested flow collections.
 - `graphSpecVersion: "1.0"` is required whenever `graph:` is present.
 - Omitting `role` makes the concept a capability.
 - A reference in a declaration is always qualified, `<concept>@<marketplace>`,
-  except `builds_on`, which names a realization of the same concept.
-  `workspace` is reserved for a consuming workspace's own concepts.
+  except `builds_on`, which names a realization of the same concept, and `when.node`, which may be the bare concept name. `workspace` is reserved for a consuming workspace's own concepts.
 - The `## Graph participation` section repeats the declaration. It has one
   bullet per declared field, except `graphSpecVersion`, in declaration order,
   in the form `- **<field>:** <value>`:
@@ -1651,8 +1622,7 @@ graph:
 
 - Every graph declaration, contract and compiled graph carries
   `graphSpecVersion`. The checks and the workspace runtime each declare the
-  range they support. Each refuses a file outside that range, with a message
-  that names the upgrade.
+  range they support. The script exits `2` on a file outside its range, with a message that names the supported range and the upgrade. A malformed value is a block under F-schema. The workspace runtime refuses an out-of-range file the same way.
 - A plugin's version follows its part of the compiled graph: the nodes, edges,
   contracts and declarations of the concepts it defines.
 - A change is **MAJOR** when it:

@@ -38,9 +38,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/guidance_check.py" <repo root>
 - Report the script's findings as it prints them, grouped by check id, with
   each file and fix. Do not re-run a mechanical check by hand.
 - Exit `0`: passed, possibly with warnings. Exit `1`: blocking findings. Exit
-  `2`: the script could not run, for example because the directory has no
-  `.claude-plugin/marketplace.json`. Report its message and stop. A partial run
-  would read as a pass.
+  `2`: the script could not run. That covers a directory with no
+  `.claude-plugin/marketplace.json`, an upstream that no step can resolve, and
+  a guidance pin that does not match the script's version. Report its message
+  and stop. A partial run would read as a pass.
 - Once the script has run, do only the judgement checks below.
 
 ## Step 2: the judgement checks
@@ -77,9 +78,12 @@ These checks are mechanical. The script runs them. This skill does not repeat
 their procedure. Look up the pass rule, the fail rule and the severity for each
 id in [spec/checks.md](../../../../spec/checks.md).
 
-- **M2, plugin naming prefix.** Every plugin shares one prefix, the first
-  hyphen-delimited segment of its name. The `guidance-` prefix is reserved for
-  the guidance marketplace.
+- **M2, plugin naming prefix.** Every plugin name starts with the
+  marketplace's prefix and a hyphen. The prefix is `metadata.pluginPrefix` in
+  `.claude-plugin/marketplace.json`, or, when that key is absent, the first
+  hyphen-delimited segment of the marketplace `name`. A plugin that does not
+  match is named by its full plugin name as its concept name. The `guidance-`
+  prefix is reserved for the guidance marketplace.
 - **U1 to U4, upstream declarations (set U).** Cross-marketplace dependencies
   sit in the marketplace entry, use the object form with a version, and are
   allowed by the root allowlist. The README has the `## Required marketplaces`
@@ -87,17 +91,17 @@ id in [spec/checks.md](../../../../spec/checks.md).
   marketplace is refused by A8 in `validate-concept-plugin`, and set U does not
   repeat that finding.
 - **AD1 and AD2, additive-only chains (set AD).** Concept names are unique, and
-  nothing in this marketplace equals a name of an upstream published
-  marketplace that is on disk. An upstream that is not on disk is reported as
-  unverified, and that is non-blocking.
-- **AD3, realizations stay with their concept (decision 19).** The rules are:
+  nothing in this marketplace equals a plugin name, concept name or prefix of an
+  upstream marketplace that the run resolved. An upstream that cannot be resolved
+  stops the run with exit `2`.
+- **AD3, realizations stay with their concept.** The rules are:
   - A `realizes` block that names an ancestor's concept is not an error. A
     downstream published marketplace may ship non-default realizations of an
     ancestor's concept, under the realization-marketplace rules in
     [architecture.md section 10](../../../../docs/architecture.md#10-realization-marketplaces).
-  - Such a realization is never marked as the default. That means no
-    `default: true` marker, no statement that it is the default, and not the
-    marker the resolved Tier 2 names. A default marker on it is blocking.
+    - Such a realization is never the default, so it carries no `default: true`
+    marker in its `realize-*` SKILL.md. A marker on it is blocking. The default
+    marker is described in [spec/checks.md](../../../../spec/checks.md#shared-rules).
   - A `realizes` block whose concept no visible marketplace defines is a
     reference that does not resolve. The script reports it under the reference
     checks.
@@ -108,8 +112,7 @@ id in [spec/checks.md](../../../../spec/checks.md).
 ## Severity
 
 The catalog states each check's severity. Do not restate it here. Known
-non-blocking findings are M2, the open-ended range in U2, the range text in U4,
-and an AD2 upstream that is not on disk ("unverified").
+non-blocking findings are M2, the open-ended range in U2, the range text in U4.
 
 ## How to run the check
 

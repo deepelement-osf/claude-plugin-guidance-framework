@@ -41,8 +41,7 @@ than bundling unrelated changes together.
 Every plugin here follows a small set of conventions, checked by the
 `guidance-conventions` plugin's `validate-marketplace` skill:
 
-- Plugin names are prefixed `guidance-<name>`, matching the guidance
-  marketplace's own name.
+- Plugin names are prefixed `guidance-<name>`.
 - Every plugin has a `.claude-plugin/plugin.json` per the
   [official plugin reference](https://code.claude.com/docs/en/plugins-reference).
 - The repo root keeps `README.md` and `LICENSE` up to date and

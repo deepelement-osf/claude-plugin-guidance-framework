@@ -1,6 +1,6 @@
 ---
 name: validate-concept-plugin
-description: Validate that a plugin claiming to be a "Concept" plugin correctly follows the concept/realization architecture (Tier 1 concept, Tier 2 realization contract, Tier 3 realizations, default realization, activation-check invocation), validate a realization skill kept outside the marketplace under validation (such as a fixture) against a concept's published contract, check that concepts reference each other only by name in the required backtick-quoted form (qualified as `name@marketplace` only when the bare name is ambiguous), validate the realization plugins of a realization marketplace against the published contract they target, and detect when a concept plugin has drifted into needing more than one realization contract (or is bundling more than one capability into Tier 1) and should be split into sibling concepts. It runs the compliance script first, then performs the judgement checks. Use proactively whenever the user is authoring or editing a plugin under plugins/*/skills/concept/, plugins/*/skills/realization-contract/, or plugins/*/skills/realize-*/ — this always includes scanning for leaked cross-concept references (check C), not just structural checks — or whenever the user explicitly asks to check/validate/audit a concept plugin, a realization, cross-concept references, or whether a plugin should be split. It runs only in a plugin marketplace repository; a consuming workspace never runs guidance checks.
+description: Validate that a plugin claiming to be a "Concept" plugin correctly follows the concept/realization architecture (Tier 1 concept, Tier 2 realization contract, Tier 3 realizations, default realization, activation-check invocation), validate the realization plugins of a realization marketplace against the published contract they target, and detect when a concept plugin has drifted into needing more than one realization contract (or is bundling more than one capability into Tier 1) and should be split into sibling concepts. It runs the compliance script first, then performs the judgement checks. Use proactively whenever the user is authoring or editing a plugin under plugins/*/skills/concept/, plugins/*/skills/realization-contract/, or plugins/*/skills/realize-*/, or whenever the user explicitly asks to check/validate/audit a concept plugin, a realization, or whether a plugin should be split. It runs only in a plugin marketplace repository; a consuming workspace never runs guidance checks.
 ---
 
 # Validate Concept Plugin
@@ -46,12 +46,9 @@ as having a judgement part. This skill performs them:
 - **A1** Tier 1 abstractness and operation-group coherence.
 - **A2** Tier 2 as a contract, not an implementation.
 - **A3** provider-specific fields in `schema.json`.
-- **A6** the knob (judgement), and the unexplained direct integration.
+- **A6** optional fields with a sensible default, the knob, and the
+  unexplained direct integration.
 - **A7** generic realization names.
-- **A8** the wording of the activation call: whether it is the first instruction
-  and reads as "if installed".
-- **C2** leaked realization names.
-- **C4** hardcoded assumptions.
 - **D** (check 10) the split signal.
 
 ## How to classify a marketplace and detect a Concept plugin
@@ -59,7 +56,7 @@ as having a judgement part. This skill performs them:
 The script classifies the marketplace under validation as one of:
 
 - **Published marketplace**: at least one plugin has a `skills/concept/`
-  directory. Sets A, C and D apply.
+  directory. Sets A and D apply.
 - **Realization marketplace**: at least one plugin has a `skills/realize-*/`
   directory and no plugin has `skills/concept/`. Set E applies.
 - **Anything else**: outside this model. Say so and skip the judgement checks.
@@ -140,17 +137,21 @@ that structure (see set E).
      `skills/realization-contract/` is required.
 
 5. **Exactly one default realization (A5).** The script checks that exactly one
-   realization is marked as the default, under the marker the contract specifies.
+   realization carries `default: true` in its `realize-*` SKILL.md frontmatter
+   (the rule is in [spec/checks.md](../../../../spec/checks.md#shared-rules)).
    Not applicable to a concept-only plugin.
 
 6. **Superset `schema.json` for each realization (A6).** The script checks that
    each `skills/realize-<provider>/schema.json` exists, parses, and is a superset
-   of Tier 2's `schema.json`. It also checks the non-blocking property
-   descriptions, defaults and default status. Judgement:
+   of Tier 2's `schema.json`. It also checks that each property has a
+   description. Judgement:
+      - **Optional defaults.** An optional field with a sensible default has one.
+     Flag an optional field that has none.
    - **Unexplained direct integration.** If the realization calls a provider's
      REST API itself, rather than binding to an existing MCP server or
-     command-line tool for that provider, its SKILL.md should say why. Architecture.md §7 prefers the
-     binding. Flag an unexplained direct integration for the user to confirm.
+     command-line tool for that provider, its SKILL.md should say why.
+     Architecture.md §7 prefers the binding. Flag an unexplained direct
+     integration for the user to confirm.
    - **A6 knob (resilience rule).** A realization that talks to an external
      service exposes an endpoint (base URL) and an API or tool version as optional
      properties in its `schema.json`, and its SKILL.md uses them, so that a change
@@ -175,24 +176,23 @@ that structure (see set E).
 8. **Activation check first, and no guidance dependency (A8).** Two parts.
    - *Invocation.* Each realization's SKILL.md instructs Claude to run the
      activation check (from `guidance-activation-check`), if installed, before
-     doing any real work. The script checks that the call is present. Judgement:
-     if the call is present but not the literal first instruction (for example,
-     operational steps come before it), or it is not written as "if installed",
-     report it as non-blocking. A consuming workspace does not install the
-     guidance plugin, so an unconditional call would fail there. Inside a marketplace
-     repository the check validates the realization against its contract. In a
-     consuming workspace it does nothing, so the call is harmless there.
-   - *No guidance dependency.* The script checks that no plugin in the
-     marketplace declares a guidance plugin as a dependency, and that the root
-     does not allowlist the guidance marketplace. A guidance plugin is
+     doing any real work. A missing call is blocking. A call that is present but
+     not the literal first instruction (for example, operational steps come
+     before it), or that is not written as "if installed", is non-blocking. A
+     consuming workspace does not install the guidance plugin, so an
+     unconditional call would fail there. Inside a marketplace repository the
+     check validates the realization against its contract. In a consuming
+     workspace it does nothing, so the call is harmless there.
+   - *No guidance dependency.* No plugin in the marketplace declares a
+     guidance plugin as a dependency, and the root does not allowlist the
+     guidance marketplace. A guidance plugin is
      `guidance-conventions` or `guidance-activation-check`, from any marketplace,
-     or any plugin of the guidance marketplace (`claude-plugin-guidance`). A
-     workspace-authored realization is not a plugin and declares no dependency,
-     so this part does not apply to set B.
+     or any plugin of the guidance marketplace (`claude-plugin-guidance`).
 
 9. **Naming consistency (A9).** The script checks that the realization names in
    each `skills/realize-*/SKILL.md` are unique within the plugin, and match the
-   Tier 2 naming convention (usually the directory name without `realize-`).
+   name rule in [spec/checks.md](../../../../spec/checks.md#shared-rules): the
+   directory name minus `realize-`.
 
 10. **Split-signal check (D; architecture.md §8): does this plugin hold two
     concepts?** Judgement, not a hard rule. Always report it as "consider
@@ -204,7 +204,7 @@ that structure (see set E).
     - **Branching language in Tier 1.** `skills/concept/SKILL.md` contains
       conditional phrasing keyed on realization type or provider category (for
       example, "if using a chat-style realization... if using an email-style
-      realization...", or "for X-type providers... for Y-type providers...").
+      realization...", or "for hosted providers... for self-hosted providers...").
       This is the clearest tell. Tier 1 should describe one uniform set of
       operations, not branch on how a realization implements them.
     - **Low schema overlap across realizations.** Compare the `properties` keys
@@ -227,100 +227,19 @@ that structure (see set E).
     Tier 1 should reference the new siblings by name (per §5), rather than absorb
     their contract.
 
-## Validating a workspace-authored realization (B)
+## Workspace-side checks (B and C)
 
-Per §2 of the architecture doc, a consuming workspace can author its own
-realization for a concept (in `.claude/skills/`, outside the marketplace under
-validation) instead of using one a marketplace offers. Guidance never runs in
-that workspace (decision 21). This section therefore runs only in a plugin
-marketplace repository, against a realization skill kept there in the same
-layout, such as a fixture. It does not check a consuming workspace's own
-realization; the workspace runtime does that. It applies to a skill that
-declares itself a realization of a concept (it carries a `realizes` block, or
-`marketplace-plugin-settings.yml` selects it). Any other skill kept outside the
-marketplace, including a local override of an installed plugin or skill, is
-outside what guidance validates: say B does not apply and stop.
+A consuming workspace can author its own realization for a concept, in
+`.claude/skills/`, instead of one a marketplace offers
+([architecture.md §2](../../../../docs/architecture.md#where-a-workspace-authored-realization-lives)).
+The checks of those realizations (B1 to B4) and the cross-concept reference
+checks (C1 to C4) run in a consuming workspace, where the workspace runtime
+implements them. [spec/checks.md](../../../../spec/checks.md) states each rule,
+with its scope `workspace`.
 
-The script runs B1, B2 and B4 and the mechanical parts of B3. Look up each id in
-[spec/checks.md](../../../../spec/checks.md). The judgement parts are these:
-
-1. **B1. Identify the target concept.** The script checks the `realizes` block.
-   A skill that `marketplace-plugin-settings.yml` selects, and that has a missing
-   or malformed block, is blocking, because the workspace runtime cannot find
-   it. For a skill that is not selected, the same finding is non-blocking. If
-   there is no block, ask the user which concept plugin the skill is meant to
-   realize. Do not guess.
-
-2. **B2. Locate that concept's contract.** The script reads the concept plugin's
-   `skills/realization-contract/schema.json` and `SKILL.md`, if the concept
-   plugin is available. If it is not, the script reports the check as
-   "unverified". Say what is needed: the concept plugin installed, or its
-   contract files provided.
-
-3. **B3. Run the Tier 3 checks on this skill.** The script checks that the skill
-   publishes its own `schema.json`, that it is a valid superset of the concept's
-   Tier 2 `schema.json`, that every property has a description, and that it
-   invokes the activation check, if installed, as its first instruction. Judgement:
-   apply the A6 knob from check 6 to the skill, if it talks to an external
-   service.
-
-   Giving the skill the same name as a realization an installed marketplace
-   offers is not a finding: the workspace's own wins
-   ([architecture.md §10](../../../../docs/architecture.md#defaults-and-collisions)).
-   Do not flag it, and do not ask whether it was intended.
-
-4. **B4. Location.** The script checks that the skill is at
-   `.claude/skills/realize-<name>/` in the workspace root, directly under
-   `.claude/skills/`, with `SKILL.md` and a sibling `schema.json`
-   ([architecture.md §2](../../../../docs/architecture.md#where-a-workspace-authored-realization-lives)).
-   Where the workspace keeps anything else is not checked. A workspace
-   realization needs no `default: true` marker, because it is opted into through
-   `marketplace-plugin-settings.yml`'s `realization:` field.
-
-Report B findings the same way as set A.
-
-## Cross-concept reference check (C)
-
-Per §5 of the architecture doc, one concept's instructions may reference
-another concept by name only. The reference is written as that concept's name
-in backticks (for example, `` `secrets` ``), or as `` `name@marketplace` `` where
-the bare name is ambiguous. It never names a specific realization, and never
-assumes one is active. Run the judgement parts of this check whenever a Tier 1
-(`skills/concept/SKILL.md`) or Tier 3 (`skills/realize-*/SKILL.md`) file is
-authored or edited, and mentions another concept. A user can also ask for it
-standalone, to sweep the whole marketplace.
-
-1. **C1. Collect other concepts' realization names.** The script collects the
-   realization names of every other concept plugin, from their
-   `skills/realize-*/SKILL.md` files, in both bare and qualified form.
-
-2. **C2. Leaked references (judgement).** Search this concept's
-   `skills/concept/` and `skills/realize-*/` files for any of those other
-   concepts' realization names in the instruction text. A reference to another
-   concept by its concept name (for example, "use the `secrets` concept") is
-   correct and expected. Flag only references to a specific realization of
-   another concept, for example "use `aws-secrets-manager`" instead of "use the
-   `secrets` concept". A qualified form such as
-   `aws-secrets-manager@acme-aws-realizations` is a realization reference, and
-   is flagged the same way. The qualifier does not make it a concept reference.
-
-3. **C3. Reference style.** The script checks the form of each reference against
-   [architecture.md §5](../../../../docs/architecture.md#5-cross-concept-references-stay-abstract).
-   A bare, backticked name is correct whenever the bare name is unique among the
-   concepts visible. A qualified, backticked name is accepted only when two
-   concepts share the bare name, and its qualifier must name the defining
-   marketplace. Where a name cannot be judged because a source could not be read,
-   the script reports "unverified" and names what it could not read.
-
-4. **C4. Hardcoded assumptions (judgement).** Flag, as non-blocking, any
-   instruction phrased as though a particular realization is always active for
-   another concept, for example "since this uses AWS, assume the region config is
-   set". The concept should resolve it generically, through that concept's own
-   activation check.
-
-Checks 2 and 4 are best-effort text matching. Report their findings as
-suggestions to review, not as certainties. Show the matched text, so the user
-can judge intent.
+Guidance does not run them. This skill does not check a realization skill kept
+outside the marketplace under validation, such as a fixture, and it does not
+report them as covered.
 
 ## Realization marketplaces (E)
 
@@ -331,13 +250,14 @@ contain, how it targets a contract and how it declares its dependency are in
 This section does not restate them.
 
 The script runs E1 to E5. Look up each id in
-[spec/checks.md](../../../../spec/checks.md). The script reads each realization's
-fenced `realizes` block in its SKILL.md, and the defining plugin's Tier 2 when
-that plugin is on disk. If it is not on disk, E3 is reported as "unverified".
+[spec/checks.md](../../../../spec/checks.md). The script reads each
+realization's fenced `realizes` block in its SKILL.md, and reads the defining
+marketplace's Tier 2 through the upstream resolution in Set X of
+[spec/checks.md](../../../../spec/checks.md).
+
 Set D does not apply to a realization marketplace, because it holds no Tier 1
 or Tier 2. The other judgement parts of this skill apply to realization plugins
-as the catalog states. In particular, A6's knob, A7, A8's wording, C2 and C4
-apply.
+as the catalog states. In particular, A6's knob, A7 and A8 apply.
 
 ## Reporting
 

@@ -134,7 +134,7 @@ declared result. It never changes the parent.
   ```
 
 - A realization that targets a concept of another marketplace carries a
-  `realizes` block. The block now has a required `name` line, which matches the
+  `realizes` block. The block has a required `name` line, which matches the
   directory name without `realize-`:
 
   ````markdown
@@ -145,8 +145,11 @@ declared result. It never changes the parent.
   ```
   ````
 
-- Only the defining marketplace marks a default. Architecture section 10 says
-  which realization kinds may be shipped, and where.
+- Only the defining marketplace marks a default, with `default: true` in the
+  frontmatter of the `realize-*` SKILL.md. The rule is in
+  [spec/checks.md](../../../../spec/checks.md#shared-rules).
+  [architecture.md section 10](../../../../docs/architecture.md#10-realization-marketplaces)
+  says which realization kinds may be shipped, and where.
 
 ## 7. Recompile
 
@@ -172,8 +175,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/guidance_check.py" .
 - Exit `1`: blocking findings. Fix each one, recompile if the file changed, and
   run the check again.
 - Exit `2`: the check could not run. Read the message. A pin mismatch (PIN) is
-  fixed by moving the guidance pin first, as
-  [spec/checks.md](../../../../spec/checks.md) describes.
+  fixed by moving the guidance pin first. The update commands are in
+  [spec/checks.md](../../../../spec/checks.md#set-pin-guidance-pin).
 - Look up any check id you do not recognise in
   [spec/checks.md](../../../../spec/checks.md). Do not guess at its meaning.
 - When the script passes, run `validate-concept-plugin` for the judgement

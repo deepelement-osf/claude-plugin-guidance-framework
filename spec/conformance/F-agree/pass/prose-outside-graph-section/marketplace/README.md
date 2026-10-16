@@ -13,3 +13,7 @@ each marketplace under exactly its name below.
 | Marketplace name | Registration source | Plugins used (range) | Why |
 |---|---|---|---|
 | `acme-core` | `acme/acme-core` (GitHub) | `acme-build` `^1.0.0`, `acme-deliver` `^1.0.0` | The web refinements refine the build phase, and the observer watches the core phases |
+
+## License
+
+It is licensed under the terms in the LICENSE file.

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "Scope the markdown deliverable belongs to.",
+      "examples": ["acme-core"]
+    },
+    "output_dir": {
+      "type": "string",
+      "description": "Directory the deliverable is written to.",
+      "default": "docs",
+      "examples": ["docs"]
+    }
+  }
+}

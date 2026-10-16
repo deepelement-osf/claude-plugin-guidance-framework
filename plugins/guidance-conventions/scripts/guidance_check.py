@@ -17,12 +17,14 @@ Options
     --compile          write concept-graph.json and stop; the checks do not run
     --upstreams DIR    directory that holds each upstream marketplace, by name
     --previous DIR     directory that holds the previous concept-graph.json
-    --repo PATH        guidance repository whose pin is checked (see read_pin)
+    --repo PATH        marketplace repository whose .claude/settings.json pin is read
+                       (default: the checked directory; see read_pin)
     --no-official      skip the official "claude plugin validate" check
     --no-pin           skip the pin check
 
 Check modules
-    gc_checks_f, gc_checks_x and gc_checks_v are imported when they exist. Each
+    gc_checks_f, gc_checks_x, gc_checks_v, gc_checks_m and gc_checks_a are imported
+    when they exist (see CHECK_MODULES). Each
     must expose run(ctx) -> list[Finding]. A missing module is skipped; any
     other failure to import or run one exits 2. F-official is in this file, so
     those modules must not emit it.
@@ -44,7 +46,6 @@ main(argv=None) -> int
 import argparse
 import importlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,8 @@ if str(SCRIPT_DIR) not in sys.path:
 from gc_compile import CompileError, compile, write_compiled  # noqa: E402
 from gc_model import (  # noqa: E402
     COMPILED_FILE,
+    GUIDANCE_MARKETPLACE,
+    CannotRun,
     Context,
     Finding,
     Marketplace,
@@ -65,25 +68,11 @@ from gc_model import (  # noqa: E402
     Options,
 )
 from gc_parse import load_json  # noqa: E402
+from gc_resolve import ResolveError, resolve  # noqa: E402
 
-GUIDANCE_MARKETPLACE = "claude-plugin-guidance"
 PIN_PREFIX = "guidance-conventions--v"
-CHECK_MODULES = ("gc_checks_f", "gc_checks_x", "gc_checks_v")
-
-
-class CannotRun(Exception):
-    """The check cannot run to a verdict. The command exits 2."""
-
-    def __init__(self, check: str, message: str, fix: str = ""):
-        super().__init__(message)
-        self.check = check
-        self.message = message
-        self.fix = fix
-
-
-def _git_env() -> Dict[str, str]:
-    drop = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
-    return {k: v for k, v in os.environ.items() if k not in drop}
+SETTINGS_RELPATH = ".claude/settings.json"
+CHECK_MODULES = ("gc_checks_f", "gc_checks_x", "gc_checks_v", "gc_checks_m", "gc_checks_a")
 
 
 def guidance_plugin_version() -> str:
@@ -101,82 +90,60 @@ def guidance_plugin_version() -> str:
 
 
 def read_pin(repo) -> Optional[str]:
-    """The guidance-conventions version tagged at HEAD of repo, or None.
+    """The guidance-conventions version that repo pins, or None.
 
-    A pin is a git tag named guidance-conventions--v<version> on the checked-out
-    commit. Two different pins at HEAD cannot be resolved, so that exits 2.
+    The pin is in the repository's committed .claude/settings.json, at
+    extraKnownMarketplaces.<guidance marketplace>.source.ref, which is expected
+    to read guidance-conventions--v<version>. A missing file, entry or ref, and
+    a ref that is not such a tag, all give None. A settings file that is not
+    readable JSON exits 2.
     """
-    repo = Path(repo)
-    try:
-        result = subprocess.run(
-            ["git", "tag", "--points-at", "HEAD", "--list", PIN_PREFIX + "*"],
-            cwd=str(repo), env=_git_env(), capture_output=True, text=True, check=False,
-        )
-    except OSError as exc:
-        raise CannotRun("PIN", f"git cannot be run: {exc}", "install git") from None
-    if result.returncode != 0:
-        raise CannotRun("PIN", f"{repo} is not a git repository",
-                        "pass --repo as a guidance repository checkout, or use --no-pin")
-    versions = sorted({line.strip()[len(PIN_PREFIX):]
-                       for line in result.stdout.splitlines() if line.strip()})
-    if not versions:
+    path = Path(repo) / SETTINGS_RELPATH
+    if not path.is_file():
         return None
-    if len(versions) > 1:
-        raise CannotRun("PIN", f"several guidance pins point at HEAD of {repo}: {', '.join(versions)}",
-                        "leave one " + PIN_PREFIX + "<version> tag on the commit")
-    return versions[0]
+    try:
+        settings = load_json(path)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise CannotRun("PIN", f"{path} is not readable JSON: {exc}",
+                        "fix the JSON syntax of .claude/settings.json, or pass --no-pin") from None
+    if not isinstance(settings, dict):
+        return None
+    known = settings.get("extraKnownMarketplaces")
+    entry = known.get(GUIDANCE_MARKETPLACE) if isinstance(known, dict) else None
+    source = entry.get("source") if isinstance(entry, dict) else None
+    ref = source.get("ref") if isinstance(source, dict) else None
+    if not isinstance(ref, str) or not ref.startswith(PIN_PREFIX):
+        return None
+    return ref[len(PIN_PREFIX):] or None
 
 
 def check_pin(repo, version: str, findings: List[Finding]) -> None:
+    """Compare this check's version with the pin in repo. A mismatch exits 2 (see read_pin)."""
     if repo is None:
         return
     pinned = read_pin(repo)
     if pinned is None:
         findings.append(Finding(
-            "PIN", "warn", None,
-            f"no {PIN_PREFIX}<version> tag points at HEAD of {repo}; this check runs version {version}",
-            "tag the guidance commit this check comes from, or pass --no-pin"))
+            "PIN", "warn", SETTINGS_RELPATH,
+            f"{SETTINGS_RELPATH} pins no {PIN_PREFIX}<version> for {GUIDANCE_MARKETPLACE}; "
+            f"this check runs version {version}, and results can differ between authors",
+            f"set extraKnownMarketplaces.{GUIDANCE_MARKETPLACE}.source.ref to {PIN_PREFIX}{version}, "
+            "or pass --no-pin"))
         return
     if pinned != version:
-        script = Path(repo) / "plugins" / "guidance-conventions" / "scripts" / "guidance_check.py"
         raise CannotRun(
             "PIN",
             f"the repository pins guidance-conventions {pinned}, but this check is version {version}",
-            f"run the pinned check: python3 {script} <directory>; or update the installed plugin: "
+            f"run claude plugin marketplace update {GUIDANCE_MARKETPLACE}, then "
             f"claude plugin update guidance-conventions@{GUIDANCE_MARKETPLACE}")
 
 
 def resolve_upstreams(marketplace: Marketplace, options: Options) -> Dict[str, Marketplace]:
-    """Load every upstream marketplace, transitively, from options.upstreams_dir."""
-    loaded: Dict[str, Marketplace] = {}
-    pending = list(marketplace.direct_upstreams())
-    while pending:
-        name = pending.pop(0)
-        if name in loaded or name == marketplace.name:
-            continue
-        if name == GUIDANCE_MARKETPLACE:
-            # A dependency on guidance is not an upstream. A8 reports it as a block.
-            continue
-        if options.upstreams_dir is None:
-            raise CannotRun(
-                "X-resolve", f"upstream marketplace {name!r} is needed and no --upstreams DIR was given",
-                f"check {name} out under its own name and pass the parent directory with --upstreams")
-        candidate = Path(options.upstreams_dir) / name
-        if not candidate.is_dir():
-            raise CannotRun("X-resolve", f"upstream {name!r} is not in {options.upstreams_dir}",
-                            f"check {name} out at {candidate}")
-        try:
-            upstream = Marketplace.load(candidate)
-        except MarketplaceError as exc:
-            raise CannotRun("X-resolve", f"upstream {name!r}: {exc}",
-                            f"make {candidate} a marketplace repository") from None
-        if upstream.name != name:
-            raise CannotRun("X-resolve",
-                            f"{candidate} holds marketplace {upstream.name!r}, not {name!r}",
-                            "check out the upstream named in the marketplace's dependencies")
-        loaded[name] = upstream
-        pending.extend(upstream.direct_upstreams())
-    return loaded
+    """Load every upstream marketplace, transitively. The order of sources is in gc_resolve."""
+    try:
+        return resolve(marketplace, options, GUIDANCE_MARKETPLACE)
+    except ResolveError as exc:
+        raise CannotRun("X-resolve", exc.message, exc.fix) from None
 
 
 def load_previous(options: Options) -> Optional[dict]:
@@ -294,10 +261,7 @@ def _run(directory: Path, options: Options, notes: List[str]) -> Tuple[int, List
     findings: List[Finding] = []
     version = guidance_plugin_version()
     if not options.no_pin:
-        repo = options.repo
-        if repo is None and marketplace.name == GUIDANCE_MARKETPLACE:
-            repo = root
-        check_pin(repo, version, findings)
+        check_pin(options.repo or root, version, findings)
 
     upstreams = resolve_upstreams(marketplace, options)
     if options.compile:

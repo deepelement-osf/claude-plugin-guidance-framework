@@ -1,0 +1,8 @@
+{
+  "name": "acme-build",
+  "version": "1.0.0",
+  "description": "The build capability.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

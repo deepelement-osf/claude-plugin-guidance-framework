@@ -23,7 +23,7 @@ if str(SCRIPTS) not in sys.path:
 
 import gc_checks_f as F  # noqa: E402
 from gc_compile import compile, render  # noqa: E402
-from gc_model import COMPILED_FILE, Context, Marketplace, Options  # noqa: E402
+from gc_model import COMPILED_FILE, CannotRun, Context, Marketplace, Options  # noqa: E402
 
 CONCEPT = "skills/concept/SKILL.md"
 CONTRACT = "skills/realization-contract/graph-contract.json"
@@ -480,12 +480,23 @@ class SchemaTest(Base):
         found = self.blocking(self.build(own), "F-schema")
         self.assertTrue(any("edges" in f.message for f in found))
 
-    def test_unsupported_graph_spec_version_blocks_with_an_upgrade_message(self):
+    def test_unsupported_graph_spec_version_exits_cannot_run_naming_the_range(self):
         own = fixture_own()
         own["acme-lint"][CONCEPT] = own["acme-lint"][CONCEPT].replace('graphSpecVersion: "1.0"',
                                                                        'graphSpecVersion: "2.0"', 1)
+        with self.assertRaises(CannotRun) as raised:
+            self.blocking(self.build(own), "F-schema")
+        self.assertEqual(raised.exception.check, "F-schema")
+        self.assertIn("'1.0' only", raised.exception.message)
+        self.assertIn("'2.0'", raised.exception.message)
+        self.assertIn("update the guidance", raised.exception.fix)
+
+    def test_malformed_graph_spec_version_stays_an_f_schema_block(self):
+        own = fixture_own()
+        own["acme-lint"][CONCEPT] = own["acme-lint"][CONCEPT].replace('graphSpecVersion: "1.0"',
+                                                                       'graphSpecVersion: "one"', 1)
         found = self.blocking(self.build(own), "F-schema")
-        self.assertTrue(any("not supported" in f.message and "upgrade" in f.message for f in found))
+        self.assertTrue(any("not a version" in f.message for f in found))
 
     def test_frame_outside_the_subset_blocks(self):
         own = fixture_own()

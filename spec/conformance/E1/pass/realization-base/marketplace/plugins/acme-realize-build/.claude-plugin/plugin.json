@@ -1,0 +1,8 @@
+{
+  "name": "acme-realize-build",
+  "version": "1.0.0",
+  "description": "Script realization of build.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

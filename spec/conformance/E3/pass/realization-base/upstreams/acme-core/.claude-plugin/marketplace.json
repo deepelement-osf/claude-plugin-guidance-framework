@@ -1,0 +1,15 @@
+{
+  "name": "acme-core",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Synthetic core marketplace.",
+  "plugins": [
+    {
+      "name": "acme-build",
+      "source": "./plugins/acme-build",
+      "description": "The build capability."
+    }
+  ]
+}

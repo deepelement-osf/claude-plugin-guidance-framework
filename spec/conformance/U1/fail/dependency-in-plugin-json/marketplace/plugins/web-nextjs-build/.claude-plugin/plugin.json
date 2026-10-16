@@ -1,0 +1,15 @@
+{
+  "name": "web-nextjs-build",
+  "version": "1.0.0",
+  "description": "Refines the build phase for Next.js projects.",
+  "author": {
+    "name": "Acme Example"
+  },
+  "dependencies": [
+    {
+      "name": "acme-build",
+      "marketplace": "acme-core",
+      "version": "^1.0.0"
+    }
+  ]
+}

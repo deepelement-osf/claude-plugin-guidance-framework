@@ -12,7 +12,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^[A-Z]+[0-9]*(-[a-z]+)?$"
+        "pattern": "^[A-Z]+[0-9]*(-[a-z0-9]+)?$"
       }
     }
   },

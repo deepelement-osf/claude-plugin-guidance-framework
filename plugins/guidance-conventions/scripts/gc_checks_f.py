@@ -70,10 +70,12 @@ from gc_model import (
     COMPILED_FILE,
     GRAPH_SPEC_VERSION,
     ROLES,
+    graph_spec_version_problem,
     Concept,
     Context,
     Finding,
     Marketplace,
+    realization_in_chain,
 )
 from gc_parse import _IGNORED_KEYWORDS, _SUBSET_KEYWORDS, validate_json_schema
 
@@ -185,15 +187,11 @@ def _resolve(ctx: Context, ref: str) -> Optional[Concept]:
     return marketplace.concepts.get(name)
 
 
-def _version_problem(node: dict) -> Optional[str]:
+def _version_problem(node: dict, where: str) -> Optional[str]:
+    """F-schema's reading of graphSpecVersion. An unsupported version raises CannotRun (exit 2)."""
     if "graphSpecVersion" not in node:
         return None
-    version = node["graphSpecVersion"]
-    if version != GRAPH_SPEC_VERSION:
-        return (f"graphSpecVersion {version!r} is not supported by this script, which supports "
-                f"{GRAPH_SPEC_VERSION!r}; upgrade the guidance script, or write the file as "
-                f"{GRAPH_SPEC_VERSION!r}")
-    return None
+    return graph_spec_version_problem(node["graphSpecVersion"], where)
 
 
 def _subset_problems(node: Any, where: str, root: dict, depth: int = 0) -> List[str]:
@@ -399,14 +397,13 @@ def _f_tier3(ctx: Context, out: List[Finding]) -> None:
                    "remove the command key, or set runs to command")
         if "builds_on" in graph:
             target = graph["builds_on"]
-            siblings = set()
-            if realization.concept_ref is not None:
-                siblings = {other.name for other in mp.realizations
-                            if other is not realization and other.concept_ref == realization.concept_ref}
-            if not isinstance(target, str) or target not in siblings:
+            if not isinstance(target, str) or not realization_in_chain(
+                    target, realization.concept_ref, mp, ctx.upstreams, exclude=realization):
                 _block(out, "F-tier3", file,
-                       f"builds_on {target!r} does not name another realization of the same concept",
-                       "name a sibling realization of this concept, or remove builds_on")
+                       f"builds_on {target!r} does not name another realization of the same concept "
+                       "in this marketplace or an upstream it reaches",
+                       "name a realization of this concept that this marketplace or an upstream provides, "
+                       "or remove builds_on")
         if "effects" in graph:
             effects = graph["effects"]
             if not isinstance(effects, list) or any(item not in EFFECTS for item in effects):
@@ -518,7 +515,7 @@ def _schema_declaration(concept: Concept, docs: Dict[str, dict], out: List[Findi
         _block(out, "F-schema", file, f"{concept.id} has a graph: value that is not a mapping",
                "write graph: as a mapping of declaration fields")
         return
-    problem = _version_problem(graph)
+    problem = _version_problem(graph, file)
     if problem:
         _block(out, "F-schema", file, problem, "set graphSpecVersion to \"1.0\"")
         return
@@ -539,7 +536,7 @@ def _schema_contract(concept: Concept, docs: Dict[str, dict], out: List[Finding]
     if not isinstance(contract, dict):
         return
     file = concept.contract_relpath
-    problem = _version_problem(contract)
+    problem = _version_problem(contract, file)
     if problem:
         _block(out, "F-schema", file, problem, "set graphSpecVersion to \"1.0\"")
         return
@@ -559,7 +556,7 @@ def _schema_realization(realization, docs: Dict[str, dict], out: List[Finding]) 
     file = realization.skill_relpath
     graph = realization.graph
     if isinstance(graph, dict):
-        problem = _version_problem(graph)
+        problem = _version_problem(graph, file)
         if problem:
             _block(out, "F-schema", file, problem, "set graphSpecVersion to \"1.0\"")
         else:
@@ -584,7 +581,7 @@ def _f_schema(ctx: Context, out: List[Finding]) -> None:
     for realization in mp.realizations:
         _schema_realization(realization, docs, out)
     if isinstance(mp.compiled, dict):
-        problem = _version_problem(mp.compiled)
+        problem = _version_problem(mp.compiled, COMPILED_FILE)
         if problem:
             _block(out, "F-schema", COMPILED_FILE, problem, "recompile with guidance_check.py --compile")
             return

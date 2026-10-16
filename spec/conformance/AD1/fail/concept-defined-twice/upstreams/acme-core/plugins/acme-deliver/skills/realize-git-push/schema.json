@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "Scope the deliverable belongs to.",
+      "examples": ["acme-core"]
+    },
+    "remote": {
+      "type": "string",
+      "description": "Remote the deliverable branch is pushed to.",
+      "default": "origin",
+      "examples": ["origin"]
+    }
+  }
+}

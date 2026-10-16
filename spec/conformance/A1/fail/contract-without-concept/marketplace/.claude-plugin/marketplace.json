@@ -1,0 +1,20 @@
+{
+  "name": "acme-vault",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Synthetic published marketplace for the A cases.",
+  "plugins": [
+    {
+      "name": "acme-secrets",
+      "source": "./plugins/acme-secrets",
+      "description": "The secrets capability."
+    },
+    {
+      "name": "acme-cache",
+      "source": "./plugins/acme-cache",
+      "description": "A cache with a contract and no concept."
+    }
+  ]
+}

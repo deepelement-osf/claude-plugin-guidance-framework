@@ -473,17 +473,18 @@ class ModelTests(unittest.TestCase):
 
     def test_plugin_source_outside_the_repository_is_m1_only(self):
         # The loader gives the plugin no files and reports nothing; gc_checks_m reports the source as M1.
-        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
-            root = build_marketplace(Path(tmp) / "m", "acme-core", [
-                {"name": "acme-core-build", "concept": True},
-            ])
-            manifest = load_json(root / ".claude-plugin" / "marketplace.json")
-            manifest["plugins"][0]["source"] = "./../outside"
-            write_json(root / ".claude-plugin" / "marketplace.json", manifest)
-            marketplace = Marketplace.load(root)
-            self.assertIsNone(marketplace.plugins["acme-core-build"].dir)
-            self.assertEqual([f for f in marketplace.findings if f.check == "F-files"], [])
-            self.assertEqual(guidance_findings(marketplace), [])
+        for source in ("./../outside", "../outside"):
+            with self.subTest(source=source), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+                root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                    {"name": "acme-core-build", "concept": True},
+                ])
+                manifest = load_json(root / ".claude-plugin" / "marketplace.json")
+                manifest["plugins"][0]["source"] = source
+                write_json(root / ".claude-plugin" / "marketplace.json", manifest)
+                marketplace = Marketplace.load(root)
+                self.assertIsNone(marketplace.plugins["acme-core-build"].dir)
+                self.assertEqual([f for f in marketplace.findings if f.check == "F-files"], [])
+                self.assertEqual(guidance_findings(marketplace), [])
 
     def test_metadata_plugin_prefix_in_manifest_is_an_f_schema_block(self):
         with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:

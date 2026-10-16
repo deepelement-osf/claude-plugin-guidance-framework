@@ -128,8 +128,9 @@ finds it is used:
    committed settings.
 
 `--upstreams DIR` replaces all three steps. The directory is the only source.
-The conformance cases use it, so they never reach the network. A failure to
-resolve any upstream exits `2` under X-resolve.
+The conformance cases use it, so they never reach the network. A copy whose
+`.claude-plugin/guidance.json` is not valid is not used. A failure to resolve
+any upstream exits `2` under X-resolve.
 
 ## Conformance cases
 

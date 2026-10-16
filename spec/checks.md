@@ -85,7 +85,9 @@ An author may pass `--upstreams DIR`. The directory is then the only source,
 and the three steps above are not tried. The chain is walked: each resolved
 upstream's own recorded upstreams are resolved the same way. The same
 resolution gives the defining marketplace that E3 reads and the upstream that
-AD2 compares against.
+AD2 compares against. A copy whose `.claude-plugin/guidance.json` is not valid
+is not used, because AD2 would otherwise compare a default prefix the upstream
+does not use.
 
 | Id | Passes when | Fails when | Severity | Kind | Scope | Implemented by |
 |---|---|---|---|---|---|---|

@@ -25,6 +25,10 @@ for it (decision 10), or, when nothing is recorded or the script compiles, the
 newest version within the declared range. Only when a version has to be chosen
 does the script list tags, through the source's ls-remote.
 
+A copy whose .claude-plugin/guidance.json is not valid is not used, because AD2
+compares the upstream's plugin-name prefix, and the loader would silently fall
+back to the default prefix.
+
 Exit 2 (ResolveError) only when none of (a) to (d) gives a copy. The message
 says what was tried, in order.
 
@@ -42,8 +46,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from gc_checks_f import guidance_findings  # noqa: E402
 from gc_checks_x import parse_range, parse_version, satisfies  # noqa: E402
-from gc_model import GUIDANCE_MARKETPLACE, Marketplace, MarketplaceError, Options  # noqa: E402
+from gc_model import GUIDANCE_FILE, GUIDANCE_MARKETPLACE, Marketplace, MarketplaceError, Options  # noqa: E402
 from gc_parse import load_json  # noqa: E402
 
 SETTINGS_RELPATH = ".claude/settings.json"
@@ -83,6 +88,14 @@ def _cache_root() -> Path:
     if data:
         return Path(data) / "upstreams"
     return Path.home() / ".cache" / "guidance-conventions" / "upstreams"
+
+
+def _guidance_problem(marketplace: Marketplace) -> Optional[str]:
+    """Why the marketplace's guidance.json makes it unusable as an upstream, or None."""
+    findings = guidance_findings(marketplace)
+    if not findings:
+        return None
+    return f"its {GUIDANCE_FILE} is not valid: " + "; ".join(f.message for f in findings)
 
 
 def _source_url(repo: Path, name: str) -> Optional[str]:
@@ -263,6 +276,10 @@ class _Resolver:
         if upstream.name != name:
             raise ResolveError(f"{candidate} holds marketplace {upstream.name!r}, not {name!r}",
                                "check out the upstream named in the marketplace's dependencies")
+        problem = _guidance_problem(upstream)
+        if problem is not None:
+            raise ResolveError(f"upstream {name!r} at {candidate}: {problem}",
+                               f"fix {GUIDANCE_FILE} in {name}, because AD2 compares its plugin-name prefix")
         return upstream
 
     def _targets(self, name: str, needs: List[_Need]) -> Dict[str, str]:
@@ -325,6 +342,9 @@ class _Resolver:
             return None, f"it is not a marketplace repository ({exc})"
         if marketplace.name != name:
             return None, f"it holds marketplace {marketplace.name!r}"
+        problem = _guidance_problem(marketplace)
+        if problem is not None:
+            return None, problem
         for plugin, version in sorted(targets.items()):
             found = marketplace.plugins.get(plugin)
             if found is None:
@@ -347,7 +367,12 @@ class _Resolver:
             elif cache.exists() or cache.is_symlink():
                 cache.unlink()
             os.replace(assembled, cache)
-            return Marketplace.load(cache)
+            fetched = Marketplace.load(cache)
+            problem = _guidance_problem(fetched)
+            if problem is not None:
+                raise ResolveError(f"upstream {name!r} fetched from {url}: {problem}",
+                                   f"fix {GUIDANCE_FILE} in {name}, because AD2 compares its plugin-name prefix")
+            return fetched
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 

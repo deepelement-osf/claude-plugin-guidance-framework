@@ -159,6 +159,15 @@ class ResolveTests(unittest.TestCase):
         loaded = resolve(self.downstream(), Options(upstreams_dir=self.tmp / "upstreams"))
         self.assertEqual(loaded["acme-core"].root, self.tmp / "upstreams" / "acme-core")
 
+    def test_a_given_directory_with_an_invalid_guidance_file_is_refused(self):
+        # AD2 compares the upstream's prefix, so a copy whose guidance.json the loader would ignore is not used.
+        core = self.core_at(self.tmp / "upstreams" / "acme-core", "1.0.0")
+        (core / ".claude-plugin" / "guidance.json").write_text('{"pluginPrefix": "Acme"}', encoding="utf-8")
+        with self.assertRaises(ResolveError) as caught:
+            resolve(self.downstream(), Options(upstreams_dir=self.tmp / "upstreams"))
+        self.assertIn("guidance.json is not valid", caught.exception.message)
+        self.assertIn("AD2", caught.exception.fix)
+
     def test_a_absent_directory_falls_through_to_the_next_place(self):
         cache = self.data / "upstreams" / "acme-core"
         self.core_at(cache, "1.0.0")
@@ -172,6 +181,14 @@ class ResolveTests(unittest.TestCase):
         copy = make_source(self.registry / "acme-core", "acme-core", "acme-phase", ["1.0.0"])
         loaded = resolve(self.downstream(recorded={"acme-core": {"acme-phase": "1.0.0"}}), Options())
         self.assertEqual(loaded["acme-core"].root, copy)
+
+    def test_b_registered_copy_with_an_invalid_guidance_file_is_refused(self):
+        copy = make_source(self.registry / "acme-core", "acme-core", "acme-phase", ["1.0.0"])
+        (copy / ".claude-plugin" / "guidance.json").write_text("{", encoding="utf-8")
+        with self.assertRaises(ResolveError) as caught:
+            resolve(self.downstream(recorded={"acme-core": {"acme-phase": "1.0.0"}}), Options())
+        self.assertIn("Claude Code's registered copy", caught.exception.message)
+        self.assertIn("guidance.json is not valid", caught.exception.message)
 
     def test_b_registered_copy_at_another_version_is_refused(self):
         make_source(self.registry / "acme-core", "acme-core", "acme-phase", ["1.0.0"])

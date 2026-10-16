@@ -501,7 +501,8 @@ class Marketplace:
             self.plugins[name] = plugin
 
     def _plugin_dir(self, name: str, source: Any) -> Optional[Path]:
-        if not isinstance(source, str) or not source.startswith("./"):
+        # The same relative-path test as M1, so a source M1 checks is never also an F-files finding.
+        if not isinstance(source, str) or not source.startswith(("./", "../")):
             self._find("F-files", "warn", self.root / ".claude-plugin" / "marketplace.json",
                        f"plugin {name!r} has a source that is not a relative path; its files are not read",
                        "use a relative source such as ./plugins/" + name)

@@ -400,6 +400,19 @@ class RealizationMarketplaceTest(Base):
         self.assertEqual(len(found), 1)
         self.assertIn("no entry dependency on marketplace acme-core", found[0].message)
 
+    def test_string_form_entry_dependency_satisfies_e3(self):
+        # The loader reads "name@marketplace" as the object form does, so E3 must accept it.
+        files = realization_files()
+        files[".claude-plugin/marketplace.json"]["plugins"][0]["dependencies"] = ["acme-build@acme-core"]
+        self.assertEqual(self.blocking(self.realization(files), "E3"), [])
+
+    def test_string_form_entry_dependency_naming_a_missing_plugin_blocks_e3(self):
+        files = realization_files()
+        files[".claude-plugin/marketplace.json"]["plugins"][0]["dependencies"] = ["acme-deploy@acme-core"]
+        found = self.blocking(self.realization(files), "E3")
+        self.assertEqual(len(found), 1)
+        self.assertIn("is not a plugin of marketplace acme-core", found[0].message)
+
     def test_dependency_naming_a_missing_plugin_blocks_e3(self):
         files = realization_files()
         files[".claude-plugin/marketplace.json"]["plugins"][0]["dependencies"][0]["name"] = "acme-deploy"

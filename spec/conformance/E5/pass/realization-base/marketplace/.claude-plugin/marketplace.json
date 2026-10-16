@@ -5,9 +5,6 @@
     "email": "maintainers@acme.example"
   },
   "description": "Synthetic realization marketplace for the E cases.",
-  "metadata": {
-    "pluginPrefix": "acme-realize"
-  },
   "allowCrossMarketplaceDependenciesOn": [
     "acme-core"
   ],

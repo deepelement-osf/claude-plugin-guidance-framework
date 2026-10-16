@@ -5,9 +5,6 @@
     "email": "maintainers@acme.example"
   },
   "description": "Core phases for the conformance fixtures.",
-  "metadata": {
-    "pluginPrefix": "-acme"
-  },
   "plugins": [
     {
       "name": "acme-build",

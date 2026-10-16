@@ -24,6 +24,7 @@ if str(SCRIPTS) not in sys.path:
 import gc_compile  # noqa: E402
 import gc_model  # noqa: E402
 import guidance_check  # noqa: E402
+from gc_checks_f import guidance_findings, schema_documents  # noqa: E402
 from gc_compile import CompileError, compile, graph_hash, render, write_compiled  # noqa: E402
 from gc_model import (  # noqa: E402
     CannotRun,
@@ -116,15 +117,16 @@ name: {name}
 """
 
 
-def build_marketplace(root: Path, name: str, plugins, order=None, metadata=None) -> Path:
+def build_marketplace(root: Path, name: str, plugins, order=None, metadata=None, guidance=None) -> Path:
     """Write a marketplace. plugins: dicts with name, version, concept (bool),
     realizations (list of str), capability (bool), deps (list of dicts).
     order, when given, lists plugin names in the order the manifest uses.
-    metadata, when given, is written as the manifest's metadata object."""
+    guidance, when given, is written as .claude-plugin/guidance.json, the file that declares
+    pluginPrefix. metadata, when given, is written as the manifest's metadata object."""
     by_name = {p["name"]: p for p in plugins}
     names = order or [p["name"] for p in plugins]
     entries = []
-    declared = (metadata or {}).get("pluginPrefix")
+    declared = (guidance or {}).get("pluginPrefix")
     prefix = declared if isinstance(declared, str) and declared else name.split("-", 1)[0]
     for plugin_name in names:
         spec = by_name[plugin_name]
@@ -152,6 +154,8 @@ def build_marketplace(root: Path, name: str, plugins, order=None, metadata=None)
     if metadata is not None:
         manifest["metadata"] = metadata
     write_json(root / ".claude-plugin" / "marketplace.json", manifest)
+    if guidance is not None:
+        write_json(root / ".claude-plugin" / "guidance.json", guidance)
     return root
 
 
@@ -320,7 +324,7 @@ class ModelTests(unittest.TestCase):
             root = build_marketplace(Path(tmp) / "core", "acme-core", [
                 {"name": "acme-core-build", "concept": True},
                 {"name": "acme-core-deliver", "concept": True},
-            ], metadata={"pluginPrefix": "acme-core"})
+            ], guidance={"pluginPrefix": "acme-core"})
             marketplace = Marketplace.load(root)
         self.assertEqual(sorted(marketplace.concepts), ["build", "deliver"])
         self.assertEqual(marketplace.concepts["build"].id, "build@acme-core")
@@ -342,20 +346,20 @@ class ModelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
             root = build_marketplace(Path(tmp) / "core", "acme-core", [
                 {"name": "acme-phase", "concept": True},
-            ], metadata={"pluginPrefix": "acme-core"})
+            ], guidance={"pluginPrefix": "acme-core"})
             marketplace = Marketplace.load(root)
         self.assertEqual(marketplace.findings, [])
         self.assertEqual(marketplace.concepts["acme-phase"].id, "acme-phase@acme-core")
 
     def test_invalid_declared_prefix_falls_back_to_the_first_segment_for_every_concept_name(self):
-        # F-schema blocks the value; the graph and every concept name still use the default prefix.
+        # gc_checks_f reports the value as an F-schema block; the loader only falls back to the default prefix.
         with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
             root = build_marketplace(Path(tmp) / "web", "acme-web", [
                 {"name": "acme-nextjs-build", "concept": True},
-            ], metadata={"pluginPrefix": "-acme"})
+            ], guidance={"pluginPrefix": "-acme"})
             marketplace = Marketplace.load(root)
         self.assertEqual(marketplace.prefix, "acme")
-        self.assertEqual([(f.check, f.severity) for f in marketplace.findings], [("F-schema", "block")])
+        self.assertEqual(marketplace.findings, [])
         self.assertEqual(sorted(marketplace.concepts), ["nextjs-build"])
         self.assertEqual(marketplace.concepts["nextjs-build"].id, "nextjs-build@acme-web")
 
@@ -405,18 +409,90 @@ class ModelTests(unittest.TestCase):
             with self.subTest(prefix=prefix), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
                 root = build_marketplace(Path(tmp) / "m", "acme-core", [
                     {"name": f"{prefix}-build", "concept": True},
-                ], metadata={"pluginPrefix": prefix})
+                ], guidance={"pluginPrefix": prefix})
                 blocking = [f for f in Marketplace.load(root).findings if f.blocking]
                 self.assertEqual(blocking, [])
 
     def test_invalid_plugin_prefix_is_an_f_schema_block(self):
-        for value in ("-acme", "acme-", "Acme", "acme--web", "", "acme web", 3, ["acme"]):
+        # gc_checks_f reports the value; the loader falls back to the default prefix without a finding.
+        for value in ("-acme", "acme-", "Acme", "acme--web", "", "acme web", "acme\n", 3, ["acme"]):
             with self.subTest(value=value), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
                 root = build_marketplace(Path(tmp) / "m", "acme-core", [
                     {"name": "acme-core-build", "concept": True},
-                ], metadata={"pluginPrefix": value})
-                findings = Marketplace.load(root).findings
+                ], guidance={"pluginPrefix": value})
+                marketplace = Marketplace.load(root)
+                self.assertEqual(marketplace.prefix, "acme")
+                self.assertEqual(marketplace.findings, [])
+                findings = guidance_findings(marketplace)
                 self.assertEqual([(f.check, f.severity) for f in findings], [("F-schema", "block")])
+
+    def test_loader_and_schema_agree_on_plugin_prefix(self):
+        # A value is read by the loader exactly when the schema accepts it.
+        schema = schema_documents()["guidance-marketplace"]
+        values = ("acme", "acme-web", "a1-b2", "x", "-acme", "acme-", "Acme", "acme--web", "",
+                  "acme web", "acme\n", "acme\nweb", "acme.web", 3, ["acme"], None)
+        for value in values:
+            with self.subTest(value=value), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+                root = Path(tmp) / "m"
+                (root / ".claude-plugin").mkdir(parents=True)
+                (root / ".claude-plugin" / "guidance.json").write_text(
+                    json.dumps({"pluginPrefix": value}), encoding="utf-8")
+                schema_ok = not validate_json_schema({"pluginPrefix": value}, schema, schema)
+                declared = gc_model.read_guidance(root)
+                self.assertEqual(declared is not None, schema_ok)
+                if schema_ok:
+                    self.assertEqual(declared, value)
+
+    def test_guidance_file_absent_or_empty_uses_the_default(self):
+        for content in (None, "{}"):
+            with self.subTest(content=content), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+                root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                    {"name": "acme-core-build", "concept": True},
+                ])
+                if content is not None:
+                    (root / ".claude-plugin" / "guidance.json").write_text(content, encoding="utf-8")
+                self.assertIsNone(gc_model.read_guidance(root))
+                self.assertEqual(Marketplace.load(root).prefix, "acme")
+                self.assertEqual(guidance_findings(Marketplace.load(root)), [])
+
+    def test_guidance_file_problems_are_f_schema_blocks(self):
+        cases = {
+            "invalid JSON": "{",
+            "unknown key": json.dumps({"pluginPrefix": "acme", "owner": "x"}),
+            "not an object": json.dumps(["acme"]),
+        }
+        for label, content in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+                root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                    {"name": "acme-core-build", "concept": True},
+                ])
+                (root / ".claude-plugin" / "guidance.json").write_text(content, encoding="utf-8")
+                self.assertIsNone(gc_model.read_guidance(root))
+                findings = guidance_findings(Marketplace.load(root))
+                self.assertEqual([(f.check, f.severity) for f in findings], [("F-schema", "block")])
+
+    def test_plugin_source_outside_the_repository_is_m1_only(self):
+        # The loader gives the plugin no files and reports nothing; gc_checks_m reports the source as M1.
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                {"name": "acme-core-build", "concept": True},
+            ])
+            manifest = load_json(root / ".claude-plugin" / "marketplace.json")
+            manifest["plugins"][0]["source"] = "./../outside"
+            write_json(root / ".claude-plugin" / "marketplace.json", manifest)
+            marketplace = Marketplace.load(root)
+            self.assertIsNone(marketplace.plugins["acme-core-build"].dir)
+            self.assertEqual([f for f in marketplace.findings if f.check == "F-files"], [])
+            self.assertEqual(guidance_findings(marketplace), [])
+
+    def test_metadata_plugin_prefix_in_manifest_is_an_f_schema_block(self):
+        with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
+            root = build_marketplace(Path(tmp) / "m", "acme-core", [
+                {"name": "acme-core-build", "concept": True},
+            ], metadata={"pluginPrefix": "acme"})
+            findings = guidance_findings(Marketplace.load(root))
+        self.assertEqual([(f.check, f.severity) for f in findings], [("F-schema", "block")])
+        self.assertIn("guidance.json", findings[0].fix)
 
     def test_metadata_that_is_not_an_object_is_an_f_schema_block(self):
         with tempfile.TemporaryDirectory(prefix="gc-prefix-") as tmp:
@@ -572,7 +648,7 @@ class CommandTests(unittest.TestCase):
         """A marketplace repository, named name, whose settings pin ref (or pin nothing when ref is None)."""
         repo = self.tmp / name
         build_marketplace(repo, GUIDANCE_NAME, [{"name": "guidance-conventions"}],
-                          metadata={"pluginPrefix": "guidance"})
+                          guidance={"pluginPrefix": "guidance"})
         write(repo / "LICENSE", "Synthetic license text for a unit test.\n")
         write(repo / "README.md", "# guidance\n\nSynthetic marketplace for a unit test.\n\n"
                                   "## License\n\nIt is licensed under the terms in the LICENSE file.\n")
@@ -639,7 +715,7 @@ class CommandTests(unittest.TestCase):
     def test_invalid_plugin_prefix_blocks_before_compile(self):
         root = build_marketplace(self.tmp / "bad-prefix-command", "acme-core",
                                  [{"name": "acme-core-build", "concept": True}],
-                                 metadata={"pluginPrefix": "-acme"})
+                                 guidance={"pluginPrefix": "-acme"})
         result = run_check(root, "--compile", "--no-pin")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("F-schema", result.stdout)

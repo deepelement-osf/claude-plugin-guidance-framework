@@ -19,8 +19,8 @@ The judgement parts of these checks (the name in M1, the README content in M3, M
 M5) belong to the skills and are never reported here. The guidance marketplace is neither
 an upstream nor a cross-marketplace dependency here; set A8 reports a dependency on it.
 
-The prefix is Marketplace.prefix, which honours metadata.pluginPrefix. A concept's name is
-its plugin's name without "<prefix>-" (concept_name in gc_model).
+The prefix is Marketplace.prefix, which honours pluginPrefix in .claude-plugin/guidance.json.
+A concept's name is its plugin's name without "<prefix>-" (concept_name in gc_model).
 """
 
 import os
@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional
 
-from gc_model import Context, Finding, Marketplace, concept_name
+from gc_model import GUIDANCE_FILE, Context, Finding, Marketplace, concept_name
 from gc_parse import load_json
 
 GUIDANCE_MARKETPLACE = "claude-plugin-guidance"
@@ -192,11 +192,11 @@ def _m2(marketplace: Marketplace, upstreams: Dict[str, Marketplace], findings: L
         elif not plugin_names_ok(name, prefix):
             problem = f"does not start with the marketplace prefix {prefix}-"
             if shared:
-                fix = (f"declare metadata.pluginPrefix in {MANIFEST_FILE} with a value other than {prefix!r}, "
+                fix = (f"declare pluginPrefix in {GUIDANCE_FILE} with a value other than {prefix!r}, "
                        f"which upstream {', '.join(shared)} uses, and name the plugin under that new prefix; "
                        f"do not rename it {prefix}-<concept>, which AD2 still reports")
             else:
-                fix = f"name the plugin {prefix}-<concept>, or declare metadata.pluginPrefix"
+                fix = f"name the plugin {prefix}-<concept>, or declare pluginPrefix in {GUIDANCE_FILE}"
         else:
             continue
         findings.append(Finding("M2", "warn", MANIFEST_FILE, f"plugin {name} {problem}", fix))
@@ -442,10 +442,11 @@ def _ad2(marketplace: Marketplace, upstreams: Dict[str, Marketplace], findings: 
                 continue
             reported.add(item.value)
             if marketplace.prefix == upstream.prefix:
-                fix = (f"declare metadata.pluginPrefix in {MANIFEST_FILE} with a value other than "
+                fix = (f"declare pluginPrefix in {GUIDANCE_FILE} with a value other than "
                        f"{upstream.prefix!r}, then name the plugin under that new prefix")
             else:
-                fix = "rename it under this marketplace's own prefix, and declare that prefix in metadata.pluginPrefix"
+                fix = (f"rename it under this marketplace's own prefix, and declare that prefix as pluginPrefix "
+                       f"in {GUIDANCE_FILE}")
             findings.append(Finding(
                 "AD2", "block", item.file,
                 f"{item.kind} {item.value} of {item.owner} equals the {other.kind} of {other.owner} "

@@ -622,7 +622,10 @@ def _validate(instance: Any, schema: Any, root: dict, path: str, depth: int) -> 
     if "enum" in schema and not any(_same(instance, option) for option in schema["enum"]):
         errors.append(f"{path}: must be one of {json.dumps(schema['enum'])}")
     if "pattern" in schema and isinstance(instance, str):
-        if not re.search(schema["pattern"], instance):
+        # ECMA's $ is the end of the input. Python's $ also matches before a final newline, so a
+        # trailing unescaped $ is written as \Z to make "acme\n" fail the same way in both.
+        pattern = re.sub(r"(?<!\\)\$$", r"\\Z", schema["pattern"])
+        if not re.search(pattern, instance):
             errors.append(f"{path}: does not match pattern {schema['pattern']!r}")
     if isinstance(instance, dict):
         properties = schema.get("properties", {})

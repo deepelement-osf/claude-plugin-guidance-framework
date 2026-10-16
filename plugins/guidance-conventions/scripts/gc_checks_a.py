@@ -65,7 +65,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from gc_checks_f import _subset_problems
-from gc_model import Concept, Context, Finding, Marketplace, Plugin, Realization, concept_name
+from gc_model import Concept, Context, Finding, Marketplace, Plugin, Realization, concept_name, normal_dependencies
 from gc_parse import YamlSubsetError, load_json, parse_yaml_subset, read_skill, validate_json_schema
 
 REALIZE_PREFIX = "realize-"
@@ -155,18 +155,16 @@ def _parse_example(text: str) -> Optional[dict]:
     return value if isinstance(value, dict) else None
 
 
-def _entry_dependencies(entry: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
-    """The dependencies declared on a marketplace entry, as name and marketplace. Entry only, not plugin.json."""
-    raw = entry.get("dependencies") if isinstance(entry, dict) else None
-    found: List[Dict[str, Optional[str]]] = []
-    if not isinstance(raw, list):
-        return found
-    for item in raw:
-        if isinstance(item, dict) and isinstance(item.get("name"), str):
-            marketplace = item.get("marketplace")
-            found.append({"name": item["name"],
-                          "marketplace": marketplace if isinstance(marketplace, str) else None})
-    return found
+def _entry_dependencies(entry: Dict[str, Any], own: str) -> List[Dict[str, Any]]:
+    """The dependencies declared on a marketplace entry, as name and marketplace. Entry only, not plugin.json.
+
+    The loader's parser reads them, so a string entry "name@marketplace" counts as the object form does.
+    A bare string names a plugin of own, the marketplace this entry belongs to.
+    """
+    if not isinstance(entry, dict):
+        return []
+    deps, _ = normal_dependencies(entry.get("dependencies"), own)
+    return deps
 
 
 def _defining_problem(upstream: Marketplace, dep_name: str, bare: str) -> Optional[str]:
@@ -420,7 +418,7 @@ def _e3(ctx: Context, out: List[Finding]) -> None:
         bare, qualifier = split
         fix = ("declare the concept plugin as a dependency on the marketplace entry, with its marketplace "
                "and a version range")
-        deps = [d for d in _entry_dependencies(r.plugin.entry) if d["marketplace"] == qualifier]
+        deps = [d for d in _entry_dependencies(r.plugin.entry, mp.name) if d["marketplace"] == qualifier]
         if not deps:
             _block(out, "E3", r.skill_relpath,
                    f"plugin {r.plugin.name} has no entry dependency on marketplace {qualifier}", fix)

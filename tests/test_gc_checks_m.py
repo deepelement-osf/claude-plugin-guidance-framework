@@ -63,12 +63,13 @@ def write_market(root: Path, name, plugins=(), *, allowlist=NONE, prefix=None, r
             concept.write_text(f"---\nname: {spec['name']}\ndescription: Concept.\n---\n\nBody.\n",
                                encoding="utf-8")
     manifest = {"name": name, "owner": {"name": "Synthetic"}, "plugins": entries}
-    if prefix is not None:
-        manifest["metadata"] = {"pluginPrefix": prefix}
     if allowlist is not NONE:
         manifest[M.ALLOWLIST_KEY] = allowlist
     (root / ".claude-plugin").mkdir(parents=True, exist_ok=True)
     (root / ".claude-plugin" / "marketplace.json").write_text(json.dumps(manifest), encoding="utf-8")
+    if prefix is not None:
+        (root / ".claude-plugin" / "guidance.json").write_text(json.dumps({"pluginPrefix": prefix}),
+                                                               encoding="utf-8")
     if readme is not None:
         (root / "README.md").write_text(readme, encoding="utf-8")
     if license:
@@ -157,7 +158,8 @@ class M2Test(Base):
         findings = self.run_check(ctx, "M2", "warn")
         self.assertEqual(len(findings), 1)
         fix = findings[0].fix
-        self.assertIn("metadata.pluginPrefix", fix)
+        self.assertIn("pluginPrefix in .claude-plugin/guidance.json", fix)
+        self.assertNotIn("metadata", fix)
         self.assertIn("other than 'acme'", fix)
         self.assertIn("acme-core", fix)
         self.assertIn("do not rename it acme-<concept>", fix)
@@ -167,7 +169,8 @@ class M2Test(Base):
         ctx = self.ctx([{"name": "secrets"}], upstream_plugins=[], upstream_prefix="beta")
         findings = self.run_check(ctx, "M2", "warn")
         self.assertEqual(len(findings), 1)
-        self.assertIn("name the plugin acme-<concept>, or declare metadata.pluginPrefix", findings[0].fix)
+        self.assertIn("name the plugin acme-<concept>, or declare pluginPrefix in .claude-plugin/guidance.json",
+                      findings[0].fix)
 
     def test_guidance_name_fix_uses_this_marketplaces_prefix(self):
         ctx = self.ctx([{"name": "guidance-x"}])

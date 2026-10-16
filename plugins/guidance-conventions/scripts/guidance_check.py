@@ -56,6 +56,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from gc_checks_f import guidance_findings  # noqa: E402
 from gc_compile import CompileError, compile, write_compiled  # noqa: E402
 from gc_model import (  # noqa: E402
     COMPILED_FILE,
@@ -249,8 +250,10 @@ def render_json(exit_code: int, findings: Sequence[Finding]) -> str:
 
 def _compile(root: Path, marketplace: Marketplace, upstreams: Dict[str, Marketplace],
              findings: List[Finding], notes: List[str]) -> Tuple[int, List[Finding]]:
-    findings.extend(marketplace.findings)
-    if any(f.blocking for f in marketplace.findings):
+    # compile runs no checks, so the F-schema blocks for guidance.json are reported here as well.
+    loading = list(marketplace.findings) + guidance_findings(marketplace)
+    findings.extend(loading)
+    if any(f.blocking for f in loading):
         return 1, findings
     if marketplace.missing_sources:
         # The checks report M1, but this path runs no checks; a graph without the plugin must not be written.

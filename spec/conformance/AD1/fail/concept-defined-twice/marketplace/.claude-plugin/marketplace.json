@@ -67,8 +67,5 @@
       "source": "./plugins/nextjs-build",
       "description": "A second definition of the nextjs-build concept."
     }
-  ],
-  "metadata": {
-    "pluginPrefix": "web"
-  }
+  ]
 }

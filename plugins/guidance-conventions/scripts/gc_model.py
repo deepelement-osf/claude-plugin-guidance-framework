@@ -15,6 +15,8 @@ Constants
     GUIDANCE_MARKETPLACE "claude-plugin-guidance". A dependency on it is never an
         upstream; A8 reports it.
     PLUGIN_PREFIX        the pattern a declared pluginPrefix must fully match.
+    GUIDANCE_FILE       ".claude-plugin/guidance.json", beside marketplace.json. The file is
+        optional and owned by guidance; it declares the plugin-name prefix.
 
 Finding(check, severity, file, message, fix="")
     One result. severity is "block" or "warn". file is a path relative to the
@@ -34,7 +36,8 @@ Plugin, Concept, Realization, Marketplace
     (or AD1 for a duplicate concept), and loading goes on. A relative-path source
     whose directory does not exist is not a finding here: gc_checks_m reports it
     as M1, the plugin loads with no directory (Plugin.dir None), and the
-    marketplace's missing_sources lists it for the compile.
+    marketplace's missing_sources lists it for the compile. A source outside the
+    repository is M1 as well, and is not a finding here either.
 
 Context(root, marketplace, upstreams, previous_graph, options, guidance_version)
     What a check receives. upstreams maps a marketplace name to its loaded
@@ -43,13 +46,16 @@ Context(root, marketplace, upstreams, previous_graph, options, guidance_version)
 
 concept_name(plugin_name, prefix) -> str
     A concept's name is its plugin's name without "<prefix>-". The prefix is
-    Marketplace.prefix: metadata.pluginPrefix of .claude-plugin/marketplace.json
-    when declared and valid, else the first hyphen-separated segment of the
+    Marketplace.prefix: pluginPrefix of .claude-plugin/guidance.json when that file
+    is valid and declares it, else the first hyphen-separated segment of the
     marketplace name. A plugin whose name does not start with "<prefix>-" is
     reported as M2 by gc_checks_m, and its concept is named by its full plugin name.
-    Whether "claude plugin validate" accepts the metadata key is UNVERIFIED
-    (a spike). Until that spike runs, the official check is the only place that
-    could object to it.
+    metadata.pluginPrefix in marketplace.json is not read: Claude Code reports it as
+    an unknown field and "claude plugin validate --strict" fails on that, so
+    gc_checks_f reports it as F-schema.
+read_guidance(root) -> str | None
+    The pluginPrefix that guidance.json declares, or None when the file is absent or
+    any part of it is not valid under spec/schemas/guidance-marketplace.schema.json.
 qualifier(ref) -> str | None
     The marketplace part of "<concept>@<marketplace>".
 declared_references(graph) -> list[(field, ref)]
@@ -113,6 +119,7 @@ def graph_spec_version_problem(value: Any, where: str) -> Optional[str]:
             f"{GRAPH_SPEC_VERSION!r}; write it as {GRAPH_SPEC_VERSION!r}")
 WORKSPACE_QUALIFIER = "workspace"
 GUIDANCE_MARKETPLACE = "claude-plugin-guidance"
+GUIDANCE_FILE = ".claude-plugin/guidance.json"
 PLUGIN_PREFIX = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 _REFERENCE_FIELDS = ("refines", "observes", "uses", "handoff", "after", "replaced_by")
@@ -261,12 +268,36 @@ def is_marketplace_repository(directory) -> bool:
     return result.returncode == 0 and bool(top) and os.path.realpath(top) == real
 
 
-def _normal_dependencies(raw: Any, own: str) -> Tuple[List[dict], List[Any]]:
+def read_guidance(root) -> Optional[str]:
+    """The pluginPrefix that .claude-plugin/guidance.json declares under root, or None.
+
+    None when the file is absent, is not valid JSON, is not an object, has any key
+    other than pluginPrefix, has no pluginPrefix, or has one that is not a string of
+    the PLUGIN_PREFIX form. Any of these means the default prefix is used. gc_checks_f
+    reports each case as F-schema, from spec/schemas/guidance-marketplace.schema.json.
+    """
+    path = Path(root) / GUIDANCE_FILE
+    if not path.is_file():
+        return None
+    try:
+        value = load_json(path)
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(value, dict) or set(value) - {"pluginPrefix"} or "pluginPrefix" not in value:
+        return None
+    prefix = value["pluginPrefix"]
+    if not isinstance(prefix, str) or not PLUGIN_PREFIX.fullmatch(prefix):
+        return None
+    return prefix
+
+
+def normal_dependencies(raw: Any, own: str) -> Tuple[List[dict], List[Any]]:
     """Return (normalised dependencies, entries that were not understood).
 
-    A string entry is "name@marketplace", split at its last "@". A bare name
-    means a plugin of the marketplace named own. Its version is None, because
-    the string form has none; U2 reports the string form itself.
+    The one parser for a dependencies list, used for a marketplace entry and for
+    plugin.json (gc_checks_a reuses it for E3). A string entry is "name@marketplace",
+    split at its last "@". A bare name means a plugin of the marketplace named own.
+    Its version is None, because the string form has none; U2 reports the string form itself.
     """
     normal: List[dict] = []
     odd: List[Any] = []
@@ -406,30 +437,20 @@ class Marketplace:
         self.findings.append(Finding(check, severity, file, message, fix))
 
     def _declared_prefix(self) -> str:
-        """The plugin-name prefix: metadata.pluginPrefix when declared, else the name's first segment.
+        """The plugin-name prefix: pluginPrefix of guidance.json when the file is valid, else the name's first segment.
 
-        A declared prefix that is not a valid prefix, or a metadata value that
-        is not an object, is an F-schema block. The default is used for the rest
-        of the load, so that the other checks still run.
+        Only a valid file is read. gc_checks_f reports an invalid file, and a
+        metadata.pluginPrefix in marketplace.json, as F-schema blocks. A metadata
+        value that is not an object is also an F-schema block, reported here. The
+        default is used for the rest of the load, so that the other checks still run.
         """
         default = self.name.split("-", 1)[0]
-        manifest_path = self.root / ".claude-plugin" / "marketplace.json"
         metadata = self.manifest.get("metadata")
-        if metadata is None:
-            return default
-        if not isinstance(metadata, dict):
-            self._find("F-schema", "block", manifest_path, "'metadata' must be an object",
-                       "make 'metadata' an object, or remove it")
-            return default
-        if "pluginPrefix" not in metadata:
-            return default
-        prefix = metadata["pluginPrefix"]
-        if not isinstance(prefix, str) or not PLUGIN_PREFIX.fullmatch(prefix):
-            self._find("F-schema", "block", manifest_path,
-                       f"metadata.pluginPrefix {prefix!r} is not a valid prefix",
-                       "use lowercase letters, digits and single hyphens, not starting or ending with a hyphen")
-            return default
-        return prefix
+        if metadata is not None and not isinstance(metadata, dict):
+            self._find("F-schema", "block", self.root / ".claude-plugin" / "marketplace.json",
+                       "'metadata' must be an object", "make 'metadata' an object, or remove it")
+        declared = read_guidance(self.root)
+        return declared if declared is not None else default
 
     def _read_json(self, path: Path) -> Optional[Any]:
         if not path.is_file():
@@ -463,7 +484,7 @@ class Marketplace:
             plugin_dir = self._plugin_dir(name, source)
             plugin = Plugin(name=name, entry=entry,
                             source=source if isinstance(source, str) else None, dir=plugin_dir)
-            deps, odd = _normal_dependencies(entry.get("dependencies"), self.name)
+            deps, odd = normal_dependencies(entry.get("dependencies"), self.name)
             plugin.dependencies.extend(deps)
             if odd:
                 self._find("F-files", "warn", self.root / ".claude-plugin" / "marketplace.json",
@@ -475,7 +496,7 @@ class Marketplace:
                     plugin.manifest = manifest
                     if isinstance(manifest.get("version"), str):
                         plugin.version = manifest["version"]
-                    more, _ = _normal_dependencies(manifest.get("dependencies"), self.name)
+                    more, _ = normal_dependencies(manifest.get("dependencies"), self.name)
                     plugin.dependencies.extend(more)
             self.plugins[name] = plugin
 
@@ -489,9 +510,7 @@ class Marketplace:
         try:
             path.relative_to(self.root)
         except ValueError:
-            self._find("F-files", "block", self.root / ".claude-plugin" / "marketplace.json",
-                       f"plugin {name!r} has a source outside the marketplace",
-                       "point the source inside this repository")
+            # gc_checks_m reports a source outside the repository as M1; the plugin loads with no files.
             return None
         if not path.is_dir():
             # gc_checks_m reports this as M1; the plugin loads with no files.

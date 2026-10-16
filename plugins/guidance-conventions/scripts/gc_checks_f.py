@@ -36,9 +36,11 @@ F-compiled
     check id the compiler gives it.
 F-schema
     Graph declarations, graph contracts, realization declarations, realizes
-    blocks and concept-graph.json validate against the schemas in spec/schemas.
-    frame, input and result stay inside the JSON Schema subset. An unsupported
-    graphSpecVersion is a block here.
+    blocks, concept-graph.json and .claude-plugin/guidance.json validate against
+    the schemas in spec/schemas. frame, input and result stay inside the JSON
+    Schema subset. An unsupported graphSpecVersion is a block here. So is a
+    metadata.pluginPrefix left in marketplace.json: it is no longer read, and its
+    value moves to pluginPrefix in guidance.json.
 F-selection
     A phase or entry does not have selection many. fold appears only with
     selection many, and selection many needs fold.
@@ -57,7 +59,7 @@ Public API
 ----------
 run(ctx) -> list[Finding]
 schema_documents() -> dict[str, dict]
-    The five schema documents in use, keyed by name.
+    The six schema documents in use, keyed by name.
 """
 
 import json
@@ -69,6 +71,7 @@ from gc_compile import CompileError, compile, render
 from gc_model import (
     COMPILED_FILE,
     GRAPH_SPEC_VERSION,
+    GUIDANCE_FILE,
     ROLES,
     graph_spec_version_problem,
     Concept,
@@ -77,7 +80,7 @@ from gc_model import (
     Marketplace,
     realization_in_chain,
 )
-from gc_parse import _IGNORED_KEYWORDS, _SUBSET_KEYWORDS, validate_json_schema
+from gc_parse import _IGNORED_KEYWORDS, _SUBSET_KEYWORDS, load_json, validate_json_schema
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SPEC_SCHEMA_DIR = SCRIPT_DIR.parent.parent.parent / "spec" / "schemas"
@@ -88,7 +91,9 @@ _SCHEMA_FILES = {
     "realization-declaration": "realization-declaration.schema.json",
     "realizes-block": "realizes-block.schema.json",
     "compiled-graph": "compiled-graph.schema.json",
+    "guidance-marketplace": "guidance-marketplace.schema.json",
 }
+MANIFEST_RELPATH = ".claude-plugin/marketplace.json"
 
 EFFECTS = ("push", "pull-request", "deployment", "external-message")
 ALLOWED_INTERACTIONS = ("autonomous", "pause")
@@ -572,9 +577,35 @@ def _schema_realization(realization, docs: Dict[str, dict], out: List[Finding]) 
             _block(out, "F-schema", file, error, "correct the realizes block to the realizes-block schema")
 
 
+def _guidance_file(mp: Marketplace, docs: Dict[str, dict], out: List[Finding]) -> None:
+    """guidance.json, when present, is valid JSON that the guidance marketplace schema accepts.
+
+    The loader reads it only when it is valid, and falls back to the default prefix otherwise,
+    so the problems are reported here and nowhere else.
+    """
+    path = mp.root / GUIDANCE_FILE
+    if path.is_file():
+        try:
+            value = load_json(path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            _block(out, "F-schema", GUIDANCE_FILE, f"file is not valid JSON: {exc}",
+                   f"fix the JSON syntax of {GUIDANCE_FILE}, or remove the file")
+            return
+        for error in validate_json_schema(value, docs["guidance-marketplace"], docs["guidance-marketplace"]):
+            _block(out, "F-schema", GUIDANCE_FILE, error,
+                   f"fix the value in {GUIDANCE_FILE} to match spec/schemas/guidance-marketplace.schema.json")
+    metadata = mp.manifest.get("metadata")
+    if isinstance(metadata, dict) and "pluginPrefix" in metadata:
+        _block(out, "F-schema", MANIFEST_RELPATH,
+               "metadata.pluginPrefix is not read: Claude Code reports it as an unknown field, and "
+               "claude plugin validate --strict fails on it",
+               f"move the value to pluginPrefix in {GUIDANCE_FILE}, and remove metadata.pluginPrefix")
+
+
 def _f_schema(ctx: Context, out: List[Finding]) -> None:
     docs = schema_documents()
     mp = ctx.marketplace
+    _guidance_file(mp, docs, out)
     for concept in _own(ctx):
         _schema_declaration(concept, docs, out)
         _schema_contract(concept, docs, out)
@@ -631,6 +662,14 @@ def _f_interaction(ctx: Context, out: List[Finding]) -> None:
 
 
 # -- entry point -----------------------------------------------------------
+
+def guidance_findings(mp: Marketplace) -> List[Finding]:
+    """The F-schema blocks for guidance.json and metadata.pluginPrefix. compile calls this too,
+    because compile runs no checks, and the loader falls back to the default prefix silently."""
+    out: List[Finding] = []
+    _guidance_file(mp, schema_documents(), out)
+    return out
+
 
 def run(ctx: Context) -> List[Finding]:
     out: List[Finding] = []
@@ -1358,6 +1397,21 @@ _EMBEDDED = {
       "additionalProperties": false
     }
   }
+}
+''',
+    "guidance-marketplace": r'''{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Guidance marketplace file (.claude-plugin/guidance.json beside marketplace.json)",
+  "description": "The optional file that guidance reads from a marketplace repository's .claude-plugin directory. Claude Code does not read it, and it is kept out of marketplace.json because Claude Code reports an unknown field there as a warning and 'claude plugin validate --strict' fails on the warning. The file may be the empty object. Its one key, pluginPrefix, is the plugin-name prefix that the marketplace's plugins start with, written without a trailing hyphen. When the file is absent, or has no pluginPrefix, the prefix is the first hyphen-delimited segment of the marketplace's name. The schema checks the shape of the value, and the compliance script checks what the prefix does to the names of the plugins and concepts (M2 and AD2). No other key is defined, so an unknown key is rejected.",
+  "type": "object",
+  "properties": {
+    "pluginPrefix": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "The plugin-name prefix, lowercase letters and digits with single hyphens between them, written without a trailing hyphen, such as acme-aws."
+    }
+  },
+  "additionalProperties": false
 }
 ''',
 }

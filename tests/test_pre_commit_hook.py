@@ -473,7 +473,8 @@ class UpstreamCommitTests(unittest.TestCase):
         }])
         manifest = self.repo / ".claude-plugin" / "marketplace.json"
         declared = json.loads(manifest.read_text(encoding="utf-8"))
-        declared["metadata"] = {"pluginPrefix": "web"}
+        (self.repo / ".claude-plugin" / "guidance.json").write_text(
+            json.dumps({"pluginPrefix": "web"}), encoding="utf-8")
         declared["allowCrossMarketplaceDependenciesOn"] = ["acme-core"]
         manifest.write_text(json.dumps(declared), encoding="utf-8")
         (self.repo / ".claude").mkdir()
@@ -583,7 +584,8 @@ class TwoPluginUpstreamCommitTests(unittest.TestCase):
         }])
         manifest = self.repo / ".claude-plugin" / "marketplace.json"
         declared = json.loads(manifest.read_text(encoding="utf-8"))
-        declared["metadata"] = {"pluginPrefix": "web"}
+        (self.repo / ".claude-plugin" / "guidance.json").write_text(
+            json.dumps({"pluginPrefix": "web"}), encoding="utf-8")
         declared["allowCrossMarketplaceDependenciesOn"] = ["acme-core"]
         manifest.write_text(json.dumps(declared), encoding="utf-8")
         (self.repo / ".claude").mkdir()

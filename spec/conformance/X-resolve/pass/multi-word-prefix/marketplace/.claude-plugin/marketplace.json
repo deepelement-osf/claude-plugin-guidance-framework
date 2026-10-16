@@ -5,9 +5,6 @@
     "email": "maintainers@acme.example"
   },
   "description": "Web refinements built on the acme-core marketplace.",
-  "metadata": {
-    "pluginPrefix": "acme-web"
-  },
   "allowCrossMarketplaceDependenciesOn": [
     "acme-core"
   ],

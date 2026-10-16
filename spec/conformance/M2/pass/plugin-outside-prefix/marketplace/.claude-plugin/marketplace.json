@@ -67,8 +67,5 @@
       "source": "./plugins/vault",
       "description": "Vault."
     }
-  ],
-  "metadata": {
-    "pluginPrefix": "web"
-  }
+  ]
 }

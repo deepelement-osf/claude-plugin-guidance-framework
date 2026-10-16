@@ -35,6 +35,21 @@ GIT_IDENTITY = {
     "GIT_COMMITTER_EMAIL": "test@example.invalid",
 }
 DEPENDS_ON_CORE = [{"name": "acme-phase", "marketplace": "acme-core", "version": "^1.0.0"}]
+TWO_PLUGINS = [
+    {"name": "acme-core-build", "marketplace": "acme-core", "version": "^1.0.0"},
+    {"name": "acme-core-deliver", "marketplace": "acme-core", "version": "^1.1.0"},
+]
+# acme-core-build stays at 1.0.0 while acme-core-deliver moves to 1.1.0, so no single
+# tag holds both versions a dependent needs. The second commit changes build's
+# directory without a new version; a fetch must not keep that change.
+TWO_PLUGIN_HISTORY = [
+    {"plugins": [("acme-core-build", "1.0.0"), ("acme-core-deliver", "1.0.0")],
+     "tags": ["acme-core-build--v1.0.0", "acme-core-deliver--v1.0.0"],
+     "files": {"plugins/acme-core-build/MARK": "build at its own tag\n"}},
+    {"plugins": [("acme-core-build", "1.0.0"), ("acme-core-deliver", "1.1.0")],
+     "tags": ["acme-core-deliver--v1.1.0"],
+     "files": {"plugins/acme-core-build/LATER": "after build's tag\n"}},
+]
 
 
 def write_json(path: Path, value) -> None:
@@ -64,6 +79,27 @@ def write_marketplace(root: Path, name: str, plugins) -> Path:
                    {"name": spec["name"], "version": spec["version"]})
     write_json(root / ".claude-plugin" / "marketplace.json",
                {"name": name, "owner": {"name": "Test"}, "plugins": entries})
+    return root
+
+
+def make_history(root: Path, name: str, commits) -> Path:
+    """A git repository holding marketplace name, one commit per entry of commits.
+
+    An entry has plugins (name, version) pairs for the marketplace at that commit, tags
+    for the <plugin>--v<version> tags the commit carries, and files for extra files the
+    commit adds, as paths from the repository root to text.
+    """
+    root.mkdir(parents=True)
+    git(root, "init", "-q")
+    for commit in commits:
+        write_marketplace(root, name, [{"name": p, "version": v} for p, v in commit["plugins"]])
+        for path, text in commit.get("files", {}).items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text, encoding="utf-8")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "commit")
+        for tag in commit.get("tags", []):
+            git(root, "tag", tag)
     return root
 
 
@@ -144,6 +180,17 @@ class ResolveTests(unittest.TestCase):
         self.assertIn("Claude Code's registered copy", caught.exception.message)
         self.assertIn("1.1.0 is needed", caught.exception.message)
 
+    def test_b_registered_copy_with_one_plugin_at_another_version_is_refused(self):
+        write_marketplace(self.registry / "acme-core", "acme-core", [
+            {"name": "acme-core-build", "version": "1.0.0"},
+            {"name": "acme-core-deliver", "version": "1.0.0"},
+        ])
+        recorded = {"acme-core": {"acme-core-build": "1.0.0", "acme-core-deliver": "1.1.0"}}
+        with self.assertRaises(ResolveError) as caught:
+            resolve(self.downstream(deps=TWO_PLUGINS, recorded=recorded), Options())
+        self.assertIn("Claude Code's registered copy", caught.exception.message)
+        self.assertIn("it has acme-core-deliver 1.0.0, and 1.1.0 is needed", caught.exception.message)
+
     # -- (c) the cache ------------------------------------------------------
 
     def test_c_cache_at_the_recorded_version_is_used(self):
@@ -151,6 +198,19 @@ class ResolveTests(unittest.TestCase):
         self.core_at(cache, "1.0.0")
         loaded = resolve(self.downstream(recorded={"acme-core": {"acme-phase": "1.0.0"}}), Options())
         self.assertEqual(loaded["acme-core"].root, cache)
+
+    def test_c_cache_with_one_plugin_at_another_version_is_refused_and_fetched(self):
+        source = make_history(self.tmp / "source" / "acme-core", "acme-core", TWO_PLUGIN_HISTORY)
+        cache = self.data / "upstreams" / "acme-core"
+        write_marketplace(cache, "acme-core", [
+            {"name": "acme-core-build", "version": "1.0.0"},
+            {"name": "acme-core-deliver", "version": "1.0.0"},
+        ])
+        recorded = {"acme-core": {"acme-core-build": "1.0.0", "acme-core-deliver": "1.1.0"}}
+        loaded = resolve(self.downstream(deps=TWO_PLUGINS, recorded=recorded,
+                                         sources={"acme-core": str(source)}), Options())
+        self.assertEqual(loaded["acme-core"].root, cache)
+        self.assertEqual(loaded["acme-core"].plugins["acme-core-deliver"].version, "1.1.0")
 
     # -- (d) fetch, then cache ----------------------------------------------
 
@@ -174,6 +234,39 @@ class ResolveTests(unittest.TestCase):
                                     sources={"acme-core": str(source)}), Options())
         self.assertIn(f"cannot fetch acme-core from {source}", caught.exception.message)
         self.assertFalse((self.data / "upstreams" / "acme-core").exists())
+
+    def test_d_a_plugin_missing_at_its_tag_fails_and_names_the_tag(self):
+        source = make_history(self.tmp / "source" / "acme-core", "acme-core", TWO_PLUGIN_HISTORY)
+        recorded = {"acme-core": {"acme-core-build": "1.0.0", "acme-core-deliver": "9.0.0"}}
+        with self.assertRaises(ResolveError) as caught:
+            resolve(self.downstream(deps=TWO_PLUGINS, recorded=recorded,
+                                    sources={"acme-core": str(source)}), Options())
+        self.assertIn(f"cannot fetch acme-core from {source} at tag acme-core-deliver--v9.0.0",
+                      caught.exception.message)
+        self.assertFalse((self.data / "upstreams" / "acme-core").exists())
+        self.assertEqual(list((self.data / "upstreams").iterdir()), [], "the staging directory must be removed")
+
+    def test_d_two_plugins_at_two_tags_are_fetched_each_from_its_own_tag(self):
+        source = make_history(self.tmp / "source" / "acme-core", "acme-core", TWO_PLUGIN_HISTORY)
+        recorded = {"acme-core": {"acme-core-build": "1.0.0", "acme-core-deliver": "1.1.0"}}
+        loaded = resolve(self.downstream(deps=TWO_PLUGINS, recorded=recorded,
+                                         sources={"acme-core": str(source)}), Options())
+        cache = self.data / "upstreams" / "acme-core"
+        self.assertEqual(loaded["acme-core"].root, cache)
+        self.assertEqual(loaded["acme-core"].plugins["acme-core-build"].version, "1.0.0")
+        self.assertEqual(loaded["acme-core"].plugins["acme-core-deliver"].version, "1.1.0")
+        self.assertEqual((cache / "plugins" / "acme-core-build" / "MARK").read_text(encoding="utf-8"),
+                         "build at its own tag\n")
+        self.assertFalse((cache / "plugins" / "acme-core-build" / "LATER").exists(),
+                         "build's directory must come from its own tag, not from the newer commit")
+        self.assertEqual(sorted(p.name for p in (self.data / "upstreams").iterdir()), ["acme-core"])
+
+        # The second run is served by the cache alone: the source is gone.
+        shutil.rmtree(source)
+        again = resolve(self.downstream(deps=TWO_PLUGINS, recorded=recorded), Options())
+        self.assertEqual(again["acme-core"].root, cache)
+        self.assertEqual(again["acme-core"].plugins["acme-core-build"].version, "1.0.0")
+        self.assertEqual(again["acme-core"].plugins["acme-core-deliver"].version, "1.1.0")
 
     # -- the chain ----------------------------------------------------------
 

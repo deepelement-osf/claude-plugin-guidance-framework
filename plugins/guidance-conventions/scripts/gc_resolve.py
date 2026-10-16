@@ -13,9 +13,12 @@ versions:
       is GUIDANCE_CHECK_MARKETPLACES_DIR or ~/.claude/plugins/marketplaces;
   (c) the cache, <data>/upstreams/<name>, where <data> is CLAUDE_PLUGIN_DATA or
       ~/.cache/guidance-conventions;
-  (d) a fetch of the version's <plugin>--v<version> tag from the source that the
-      repository's .claude/settings.json registers for <name>. The fetched copy
-      is stored in the cache, and only after it verifies.
+  (d) a fetch from the source that the repository's .claude/settings.json
+      registers for <name>. Each needed plugin is fetched from its own
+      <plugin>--v<version> tag and verified there. The assembled copy takes
+      marketplace.json and concept-graph.json from the tag with the newest version,
+      and each other needed plugin's directory from its own tag. It is stored in
+      the cache, and only after it verifies.
 
 The version a copy must hold is the one the dependent's compiled graph records
 for it (decision 10), or, when nothing is recorded or the script compiles, the
@@ -336,29 +339,84 @@ class _Resolver:
         staging = cache_root / f".{name}.staging-{os.getpid()}"
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
-        args = ["clone", "--depth", "1"]
-        if targets:
-            plugin = sorted(targets)[0]
-            args += ["--branch", f"{plugin}--v{targets[plugin]}"]
-        args += [url, str(staging)]
-        result = _run_git(args)
-        if result is None or result.returncode != 0:
+        try:
+            assembled = self._assemble(name, url, targets, staging)
+            cache = cache_root / name
+            if cache.is_dir() and not cache.is_symlink():
+                shutil.rmtree(cache)
+            elif cache.exists() or cache.is_symlink():
+                cache.unlink()
+            os.replace(assembled, cache)
+            return Marketplace.load(cache)
+        finally:
             shutil.rmtree(staging, ignore_errors=True)
-            detail = "git is not available" if result is None else result.stderr.strip()
-            raise ResolveError(f"cannot fetch {name} from {url}: {detail}",
-                               "check the source in .claude/settings.json, the network, and that the tag exists")
-        found, reason = self._check(staging, name, targets)
+
+    def _assemble(self, name: str, url: str, targets: Dict[str, str], staging: Path) -> Path:
+        """Fetch what the targets need into staging, and return the assembled marketplace directory.
+
+        Each needed plugin is cloned from its own <plugin>--v<version> tag and checked there.
+        The clone of the tag with the newest version is the base: its marketplace.json and
+        concept-graph.json are the assembled ones, and every other needed plugin's directory
+        is replaced by the one from its own tag. With no targets, the base is the default branch.
+        The assembled copy is checked again before it is returned.
+        """
+        base_dir = staging / "assembled"
+        if not targets:
+            self._clone(name, url, None, base_dir)
+            found, reason = self._check(base_dir, name, targets)
+            if found is None:
+                raise ResolveError(f"the fetched {name} from {url} is not usable, because {reason}",
+                                   "publish the tag for the version the dependent needs, or fix the source")
+            return base_dir
+
+        plugins = sorted(targets)
+        newest = max(plugins, key=lambda plugin: (parse_version(targets[plugin]) or (), plugin))
+        clones: Dict[str, Tuple[Path, Marketplace]] = {}
+        for plugin in plugins:
+            tag = f"{plugin}--v{targets[plugin]}"
+            directory = base_dir if plugin == newest else staging / "tags" / tag
+            self._clone(name, url, tag, directory)
+            found, reason = self._check(directory, name, {plugin: targets[plugin]})
+            if found is None:
+                raise ResolveError(f"the fetched {name} from {url} is not usable at tag {tag}, because {reason}",
+                                   "publish the tag for the version the dependent needs, or fix the source")
+            clones[plugin] = (directory, found)
+
+        _, base = clones[newest]
+        for plugin in plugins:
+            if plugin == newest:
+                continue
+            _, source = clones[plugin]
+            plugin_dir = source.plugins[plugin].dir
+            entry = base.plugins.get(plugin)
+            if entry is not None and entry.dir is not None:
+                destination = entry.dir
+            else:
+                destination = Path(os.path.normpath(base_dir / source.plugins[plugin].source))
+            if destination.is_symlink() or destination.is_file():
+                destination.unlink()
+            elif destination.is_dir():
+                shutil.rmtree(destination)
+            shutil.copytree(plugin_dir, destination, symlinks=True)
+
+        found, reason = self._check(base_dir, name, targets)
         if found is None:
-            shutil.rmtree(staging, ignore_errors=True)
             raise ResolveError(f"the fetched {name} from {url} is not usable, because {reason}",
                                "publish the tag for the version the dependent needs, or fix the source")
-        cache = cache_root / name
-        if cache.is_dir() and not cache.is_symlink():
-            shutil.rmtree(cache)
-        elif cache.exists() or cache.is_symlink():
-            cache.unlink()
-        os.replace(staging, cache)
-        return Marketplace.load(cache)
+        return base_dir
+
+    def _clone(self, name: str, url: str, tag: Optional[str], directory: Path) -> None:
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        args = ["clone", "--depth", "1"]
+        if tag is not None:
+            args += ["--branch", tag]
+        args += [url, str(directory)]
+        result = _run_git(args)
+        if result is None or result.returncode != 0:
+            detail = "git is not available" if result is None else result.stderr.strip()
+            where = "" if tag is None else f" at tag {tag}"
+            raise ResolveError(f"cannot fetch {name} from {url}{where}: {detail}",
+                               "check the source in .claude/settings.json, the network, and that the tag exists")
 
 
 def resolve(marketplace: Marketplace, options: Options, guidance: str = GUIDANCE_MARKETPLACE) -> Dict[str, Marketplace]:

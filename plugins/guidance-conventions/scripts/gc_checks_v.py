@@ -58,17 +58,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from gc_compile import CompileError, compile
 from gc_model import COMPILED_FILE, Context, Finding, qualifier
-from gc_parse import load_json
+from gc_parse import _IGNORED_KEYWORDS, load_json
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 GUIDANCE_FALLBACK = "claude-plugin-guidance"
 GUIDANCE_PLUGIN_NAMES = ("guidance-conventions", "guidance-activation-check")
 
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
-_ANNOTATIONS = frozenset({
-    "$schema", "$id", "$comment", "title", "description", "examples", "default",
-    "readOnly", "writeOnly", "$defs", "definitions",
-})
+# The keywords the schema subset ignores. A keyword outside the subset is not an annotation here: it
+# is refused by F-schema, and it must never be silently read as one that does not constrain.
+_ANNOTATIONS = _IGNORED_KEYWORDS
 _MAX_DEPTH = 16
 
 

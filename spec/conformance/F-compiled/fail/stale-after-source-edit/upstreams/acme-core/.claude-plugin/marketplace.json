@@ -1,0 +1,25 @@
+{
+  "name": "acme-core",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Core phases and a capability for the conformance fixtures.",
+  "plugins": [
+    {
+      "name": "acme-build",
+      "source": "./plugins/acme-build",
+      "description": "The build phase: turns a goal into a deliverable."
+    },
+    {
+      "name": "acme-deliver",
+      "source": "./plugins/acme-deliver",
+      "description": "The deliver phase: publishes a deliverable."
+    },
+    {
+      "name": "acme-secrets",
+      "source": "./plugins/acme-secrets",
+      "description": "The secrets capability: stores and retrieves a secret by name."
+    }
+  ]
+}

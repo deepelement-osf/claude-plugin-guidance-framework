@@ -1,0 +1,18 @@
+{
+  "capabilities": [
+    {
+      "contract": {
+        "selection": "one"
+      },
+      "id": "build@acme-core",
+      "plugin": "acme-build",
+      "realizations": [],
+      "version": "1.0.0"
+    }
+  ],
+  "graphHash": "sha256:3312b532c7e1ce9bd01bfdd0aabe86c521cd5d1b041320a3e7faf3aae1e0f627",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-core",
+  "nodes": [],
+  "upstreams": []
+}

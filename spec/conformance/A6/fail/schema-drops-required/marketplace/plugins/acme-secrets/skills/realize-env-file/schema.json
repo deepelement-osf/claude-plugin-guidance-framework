@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "Namespace the secret names belong to."
+    },
+    "env_prefix": {
+      "type": "string",
+      "description": "Prefix added to a secret name to form the variable.",
+      "default": "ACME_"
+    }
+  }
+}

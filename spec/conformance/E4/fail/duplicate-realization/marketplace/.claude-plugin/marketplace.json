@@ -1,0 +1,37 @@
+{
+  "name": "acme-build-realizations",
+  "owner": {
+    "name": "Acme Example",
+    "email": "maintainers@acme.example"
+  },
+  "description": "Synthetic realization marketplace for the E cases.",
+  "allowCrossMarketplaceDependenciesOn": [
+    "acme-core"
+  ],
+  "plugins": [
+    {
+      "name": "acme-realize-build",
+      "source": "./plugins/acme-realize-build",
+      "description": "Script realization of build.",
+      "dependencies": [
+        {
+          "name": "acme-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
+      ]
+    },
+    {
+      "name": "acme-realize-build-alt",
+      "source": "./plugins/acme-realize-build-alt",
+      "description": "Script realization of build.",
+      "dependencies": [
+        {
+          "name": "acme-build",
+          "marketplace": "acme-core",
+          "version": "^1.0.0"
+        }
+      ]
+    }
+  ]
+}

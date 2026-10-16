@@ -1,0 +1,8 @@
+{
+  "name": "vault",
+  "version": "1.0.0",
+  "description": "Vault.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

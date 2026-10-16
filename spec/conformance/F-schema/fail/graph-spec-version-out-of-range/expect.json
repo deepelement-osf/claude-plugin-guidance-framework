@@ -1,0 +1,6 @@
+{
+  "exit": 2,
+  "checks": [
+    "F-schema"
+  ]
+}

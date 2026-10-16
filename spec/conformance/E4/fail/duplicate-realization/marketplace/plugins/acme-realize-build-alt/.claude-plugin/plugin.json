@@ -1,0 +1,8 @@
+{
+  "name": "acme-realize-build-alt",
+  "version": "1.0.0",
+  "description": "A second script realization of build.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

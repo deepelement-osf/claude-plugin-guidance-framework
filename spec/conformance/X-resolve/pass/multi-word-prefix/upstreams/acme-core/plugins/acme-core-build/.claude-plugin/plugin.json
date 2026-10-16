@@ -1,0 +1,8 @@
+{
+  "name": "acme-core-build",
+  "version": "1.0.0",
+  "description": "The build phase: turns a goal into a deliverable.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

@@ -41,8 +41,7 @@ than bundling unrelated changes together.
 Every plugin here follows a small set of conventions, checked by the
 `guidance-conventions` plugin's `validate-marketplace` skill:
 
-- Plugin names are prefixed `guidance-<name>`, matching the guidance
-  marketplace's own name.
+- Plugin names are prefixed `guidance-<name>`.
 - Every plugin has a `.claude-plugin/plugin.json` per the
   [official plugin reference](https://code.claude.com/docs/en/plugins-reference).
 - The repo root keeps `README.md` and `LICENSE` up to date and
@@ -68,6 +67,8 @@ relationship between roles.
 
 The guidance marketplace ships authoring tooling for marketplace authors,
 not concept plugins — see [the four roles](./docs/architecture.md#the-four-roles).
+The tooling runs only in marketplace repositories, and a consuming workspace
+never registers it.
 A contribution is usually one of:
 
 - A new `guidance-<name>` tooling plugin, or a new skill in an existing
@@ -123,8 +124,8 @@ this section covers only what this repo does with it.
 ### Releasing
 
 Tags are per plugin, named `<plugin>--v<version>` (for example
-`guidance-activation-check--v1.0.0`). The `workspace-v*` tags in this
-repo are created by the control plane and are unrelated to plugin tags.
+`guidance-activation-check--v1.0.0`). A tag of any other shape is not a
+plugin release tag, and this policy ignores it.
 
 After the pull request merges, the guidance maintainer tags the merge commit
 from a clean working tree:
@@ -147,11 +148,9 @@ in this repo.
   contents at that commit; any later change to either plugin bumps its
   `version` under the policy above and is not part of `0.1.0`.
 - `guidance-activation-check` is tagged `1.0.0` when the guidance
-  maintainers decide it is ready to depend on. The order is: the pull
-  request that releases it merges, the guidance maintainer pushes
-  `guidance-activation-check--v1.0.0`, and only then does the change that
-  tells anyone to depend on a guidance plugin merge, since a range such
-  as `^1.0.0` is not satisfied before that tag exists.
+  maintainers decide it is ready. Nothing depends on that tag: no plugin
+  declares a guidance plugin as a dependency, and a realization calls the
+  check only if it is installed (see [the architecture](./docs/architecture.md#6-activation-check-a-shared-convention-not-a-hook)).
 - `guidance-conventions` is authoring-time tooling and is not a documented
   dependency target.
 

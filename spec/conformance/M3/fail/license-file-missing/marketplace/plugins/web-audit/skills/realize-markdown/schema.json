@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "Name of the scope whose phases are recorded.",
+      "examples": ["acme-web"]
+    },
+    "log_path": {
+      "type": "string",
+      "description": "Markdown file the audit lines are appended to.",
+      "default": "docs/audit.md",
+      "examples": ["docs/audit.md"]
+    }
+  }
+}

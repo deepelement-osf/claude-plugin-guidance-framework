@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "description": "Name of the Next.js project the refinement applies to.",
+      "examples": ["acme-web"]
+    },
+    "build_script": {
+      "type": "string",
+      "description": "Script in package.json that runs the build.",
+      "default": "build",
+      "examples": ["build"]
+    }
+  }
+}

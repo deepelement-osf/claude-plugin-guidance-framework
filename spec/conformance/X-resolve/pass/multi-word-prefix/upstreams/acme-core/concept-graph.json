@@ -1,0 +1,75 @@
+{
+  "capabilities": [],
+  "graphHash": "sha256:c80c93cb99d7a4d49b3520aefd875753c6c3e916d63bbc2046aa423801bf08f1",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-core",
+  "nodes": [
+    {
+      "contract": {
+        "frame": {
+          "properties": {
+            "goal": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "selection": "one"
+      },
+      "edges": [
+        {
+          "outcome": "passed",
+          "to": "deliver@acme-core"
+        },
+        {
+          "outcome": "failed",
+          "to": "deliver@acme-core"
+        }
+      ],
+      "id": "build@acme-core",
+      "interaction": "autonomous",
+      "plugin": "acme-core-build",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "markdown",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "role": "phase",
+      "version": "1.0.0"
+    },
+    {
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "selection": "one"
+      },
+      "id": "deliver@acme-core",
+      "interaction": "autonomous",
+      "plugin": "acme-core-deliver",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "git-push",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "role": "phase",
+      "version": "1.0.0"
+    }
+  ],
+  "upstreams": []
+}

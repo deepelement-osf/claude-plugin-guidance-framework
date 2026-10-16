@@ -1,0 +1,123 @@
+{
+  "capabilities": [
+    {
+      "contract": {
+        "selection": "one"
+      },
+      "id": "secrets@acme-core",
+      "plugin": "acme-secrets",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "env-file",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "graphHash": "sha256:491856a3d1e200ed01c750c08a254a622076dfa3475809e79928778430ba32cc",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-core",
+  "nodes": [
+    {
+      "contract": {
+        "frame": {
+          "properties": {
+            "goal": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "selection": "one"
+      },
+      "edges": [
+        {
+          "outcome": "passed",
+          "to": "deliver@acme-core"
+        },
+        {
+          "outcome": "failed",
+          "to": "deliver@acme-core"
+        }
+      ],
+      "id": "build@acme-core",
+      "interaction": "autonomous",
+      "plugin": "acme-build",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "markdown",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "role": "phase",
+      "uses": [
+        "secrets@acme-core"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "selection": "one"
+      },
+      "id": "deliver@acme-core",
+      "interaction": "autonomous",
+      "plugin": "acme-deliver",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [
+            "push"
+          ],
+          "name": "git-push",
+          "realizes": null,
+          "runs": "command"
+        }
+      ],
+      "role": "phase",
+      "version": "1.0.0"
+    },
+    {
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "selection": "one"
+      },
+      "id": "review@acme-core",
+      "interaction": "autonomous",
+      "plugin": "acme-review",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "markdown",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "role": "phase",
+      "version": "1.0.0"
+    }
+  ],
+  "upstreams": []
+}

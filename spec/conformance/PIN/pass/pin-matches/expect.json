@@ -1,0 +1,10 @@
+{
+  "exit": 0,
+  "checks": [],
+  "args": [
+    "--json",
+    "--no-official",
+    "--repo",
+    "marketplace"
+  ]
+}

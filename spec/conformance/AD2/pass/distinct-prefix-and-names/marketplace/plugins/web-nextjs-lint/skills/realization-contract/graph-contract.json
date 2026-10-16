@@ -1,0 +1,12 @@
+{
+  "graphSpecVersion": "1.0",
+  "selection": "one",
+  "outcomes": ["passed", "failed"],
+  "result": {
+    "type": "object",
+    "properties": {
+      "findings": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["findings"]
+  }
+}

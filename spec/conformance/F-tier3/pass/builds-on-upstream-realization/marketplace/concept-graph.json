@@ -1,0 +1,16 @@
+{
+  "capabilities": [],
+  "graphHash": "sha256:18412557371a4c3ce9e914c62c433f86b756cc9065d89a011670991464d72b87",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-web",
+  "nodes": [],
+  "upstreams": [
+    {
+      "graphHash": "sha256:5940b2bd688faab21c2199b18091ccc21d0d48a239a3b393c1f02502d2020231",
+      "marketplace": "acme-core",
+      "plugins": {
+        "acme-build": "1.0.0"
+      }
+    }
+  ]
+}

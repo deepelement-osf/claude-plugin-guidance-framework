@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Graph contract (skills/realization-contract/graph-contract.json)",
+  "description": "The Tier 2 graph contract of a concept, in its own file beside schema.json. contractVersion is not in this file. It stays only in schema.json, its one source. Each concept with a role has one. A capability may have one or may be concept-only. The fold key is required if and only if selection is many, and the oneOf below enforces that. The schema cannot check the rules that depend on the concept's role or on the rest of the graph, such as: outcomes being required for phase, entry and refinement; frame being required when the concept accepts refinements; input being required when it accepts hand-offs; result being required for refinement and observer; a phase or entry being selection one; or an output validating against a target's input. The compliance script checks those. The frame, input and result values are JSON Schema documents, and they are checked against the subset in spec/README.md. They are typed only as objects here, so their own keys are not closed by this schema.",
+  "oneOf": [
+    { "$ref": "#/$defs/selectionOne" },
+    { "$ref": "#/$defs/selectionMany" }
+  ],
+  "$defs": {
+    "graphSpecVersion": {
+      "const": "1.0"
+    },
+    "outcome": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "outcomes": {
+      "type": "array",
+      "description": "Phase, entry and refinement only. The outcomes the conclude step can produce.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/outcome" }
+    },
+    "jsonSchemaDocument": {
+      "type": "object",
+      "description": "A JSON Schema document in the guidance subset. Only its top level is typed here."
+    },
+    "selectionOne": {
+      "type": "object",
+      "description": "selection one, the default. fold is not allowed.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "selection": { "const": "one" },
+        "outcomes": { "$ref": "#/$defs/outcomes" },
+        "frame": { "$ref": "#/$defs/jsonSchemaDocument" },
+        "input": { "$ref": "#/$defs/jsonSchemaDocument" },
+        "result": { "$ref": "#/$defs/jsonSchemaDocument" }
+      },
+      "required": ["graphSpecVersion"],
+      "additionalProperties": false
+    },
+    "selectionMany": {
+      "type": "object",
+      "description": "selection many. fold is required. A phase or entry may not be many, which the compliance script checks.",
+      "properties": {
+        "graphSpecVersion": { "$ref": "#/$defs/graphSpecVersion" },
+        "selection": { "const": "many" },
+        "fold": {
+          "enum": ["all", "collect", "worst-outcome"]
+        },
+        "outcomes": { "$ref": "#/$defs/outcomes" },
+        "frame": { "$ref": "#/$defs/jsonSchemaDocument" },
+        "input": { "$ref": "#/$defs/jsonSchemaDocument" },
+        "result": { "$ref": "#/$defs/jsonSchemaDocument" }
+      },
+      "required": ["graphSpecVersion", "selection", "fold"],
+      "additionalProperties": false
+    }
+  }
+}

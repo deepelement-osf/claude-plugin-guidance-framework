@@ -1,0 +1,8 @@
+{
+  "name": "acme-deploy",
+  "version": "1.0.0",
+  "description": "The deploy phase: publishes built output to its environment.",
+  "author": {
+    "name": "Acme Example"
+  }
+}

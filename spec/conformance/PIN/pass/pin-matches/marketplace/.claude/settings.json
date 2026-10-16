@@ -1,0 +1,11 @@
+{
+  "extraKnownMarketplaces": {
+    "claude-plugin-guidance": {
+      "source": {
+        "source": "github",
+        "repo": "example/claude-plugin-guidance",
+        "ref": "guidance-conventions--v4.0.0"
+      }
+    }
+  }
+}

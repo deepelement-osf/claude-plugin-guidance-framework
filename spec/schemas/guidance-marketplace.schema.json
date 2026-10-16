@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Guidance marketplace file (.claude-plugin/guidance.json beside marketplace.json)",
+  "description": "The optional file that guidance reads from a marketplace repository's .claude-plugin directory. Claude Code does not read it, and it is kept out of marketplace.json because Claude Code reports an unknown field there as a warning and 'claude plugin validate --strict' fails on the warning. The file may be the empty object. Its one key, pluginPrefix, is the plugin-name prefix that the marketplace's plugins start with, written without a trailing hyphen. When the file is absent, or has no pluginPrefix, the prefix is the first hyphen-delimited segment of the marketplace's name. The schema checks the shape of the value, and the compliance script checks what the prefix does to the names of the plugins and concepts (M2 and AD2). No other key is defined, so an unknown key is rejected.",
+  "type": "object",
+  "properties": {
+    "pluginPrefix": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "The plugin-name prefix, lowercase letters and digits with single hyphens between them, written without a trailing hyphen, such as acme-aws."
+    }
+  },
+  "additionalProperties": false
+}

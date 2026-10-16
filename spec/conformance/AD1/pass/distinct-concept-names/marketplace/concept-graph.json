@@ -1,0 +1,134 @@
+{
+  "capabilities": [],
+  "graphHash": "sha256:7432fea4d1989b645afc87e76752542d4e9e0e9e8095ae2e46ad223fbe34e6c8",
+  "graphSpecVersion": "1.0",
+  "marketplace": "acme-web",
+  "nodes": [
+    {
+      "contract": {
+        "result": {
+          "properties": {
+            "recorded": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "recorded"
+          ],
+          "type": "object"
+        },
+        "selection": "one"
+      },
+      "id": "audit@acme-web",
+      "interaction": "autonomous",
+      "observes": {
+        "role": "phase"
+      },
+      "on": "concluded",
+      "plugin": "web-audit",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "markdown",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "role": "observer",
+      "version": "1.0.0"
+    },
+    {
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "result": {
+          "properties": {
+            "notes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "notes"
+          ],
+          "type": "object"
+        },
+        "selection": "one"
+      },
+      "id": "nextjs-build@acme-web",
+      "interaction": "autonomous",
+      "plugin": "web-nextjs-build",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "next-cli",
+          "realizes": null,
+          "runs": "agent"
+        }
+      ],
+      "refines": "build@acme-core",
+      "role": "refinement",
+      "version": "1.0.0"
+    },
+    {
+      "after": [
+        "nextjs-build@acme-web"
+      ],
+      "contract": {
+        "outcomes": [
+          "passed",
+          "failed"
+        ],
+        "result": {
+          "properties": {
+            "findings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "findings"
+          ],
+          "type": "object"
+        },
+        "selection": "one"
+      },
+      "id": "nextjs-lint@acme-web",
+      "interaction": "autonomous",
+      "plugin": "web-nextjs-lint",
+      "realizations": [
+        {
+          "builds_on": null,
+          "default": true,
+          "effects": [],
+          "name": "lint-script",
+          "realizes": null,
+          "runs": "command"
+        }
+      ],
+      "refines": "build@acme-core",
+      "role": "refinement",
+      "version": "1.0.0"
+    }
+  ],
+  "upstreams": [
+    {
+      "graphHash": "sha256:5940b2bd688faab21c2199b18091ccc21d0d48a239a3b393c1f02502d2020231",
+      "marketplace": "acme-core",
+      "plugins": {
+        "acme-build": "1.0.0",
+        "acme-deliver": "1.0.0"
+      }
+    }
+  ]
+}

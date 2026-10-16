@@ -1,0 +1,24 @@
+# Runs the standard-library unit tests for the guidance scripts on every pull
+# request into main, then the conformance cases under spec/conformance. The
+# tests need only python3 and git, both present on ubuntu-latest; they build
+# their own fixture repositories in temporary directories and do not depend on
+# the checkout's submodules. The conformance cases are committed fixtures, so
+# the runner also needs nothing but python3.
+
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Run conformance cases
+        run: python3 tests/run_conformance.py

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Conformance case expectation (expect.json)",
+  "description": "The expect.json file in one conformance case directory, spec/conformance/<check-id>/{pass,fail}/<case-name>/. exit is the exit code the script must return for the case: 0 for passed, 1 for blocking findings, 2 for a case that could not run. checks lists check ids. For a fail case, each listed id must appear as a blocking finding. For a pass case, no blocking finding may carry the case's own check id, and no warn finding may carry it unless warnings lists it. warnings lists check ids that must appear as warn findings in every case. args optionally replaces the runner's default script flags (--no-official --no-pin --json); it must include --json, and its paths are relative to the case directory, which is the working directory. The check ids are the ids in spec/checks.md, and the pattern below matches them without listing each one. The schema does not check which check id the case directory is named for, or that a fail case lists at least one id. Both are checked by the case runner.",
+  "type": "object",
+  "properties": {
+    "exit": {
+      "type": "integer",
+      "enum": [0, 1, 2]
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]+[0-9]*(-[a-z0-9]+)?$"
+      }
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]+[0-9]*(-[a-z0-9]+)?$"
+      }
+    }
+  },
+  "required": ["exit", "checks"],
+  "additionalProperties": false
+}

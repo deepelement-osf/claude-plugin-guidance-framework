@@ -1,0 +1,11 @@
+{
+  "graphSpecVersion": "1.0",
+  "selection": "one",
+  "result": {
+    "type": "object",
+    "properties": {
+      "recorded": {"type": "boolean"}
+    },
+    "required": ["recorded"]
+  }
+}

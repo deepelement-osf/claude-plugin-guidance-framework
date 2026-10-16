@@ -999,6 +999,13 @@ locally: a dependency entry that names a marketplace also matches a
 `--plugin-dir` copy of that plugin on v2.1.242 or later (see
 [test a plugin and its dependency locally](https://code.claude.com/docs/en/plugins/dependencies#test-a-plugin-and-its-dependency-locally)).
 
+The official check, F-official, runs `claude plugin validate --json --strict`. The `--json` flag
+needs Claude Code 2.1.259 or later. The Claude Code changelog records it under 2.1.259, as "Added
+`--json` to `claude plugin validate`", and no earlier entry adds it. The help text of 2.1.301 lists
+the flag, and 2.1.301 is the version this check was verified with. An older Claude Code refuses the
+flag, and `guidance_check.py` then stops with exit 2 and a message that names 2.1.259. It does not
+report that as a marketplace failure.
+
 #### Validator severity and migrating a chain
 
 `validate-marketplace` checks what this section describes in two sets:

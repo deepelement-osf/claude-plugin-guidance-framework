@@ -50,13 +50,13 @@ load_json(path) -> Any
 validate_json_schema(instance, schema, root=None) -> list[str]
     Validates an instance against the JSON Schema subset that guidance keeps
     to: type, properties, required, additionalProperties, enum, const, items,
-    pattern, minItems, oneOf and $ref to a local '#/$defs/<name>' (or
-    '#/definitions/<name>'). Returns error strings with a JSON-path-like
-    location; an empty list means the instance is valid. A schema keyword
-    outside the subset raises SchemaSubsetError, so a schema is never checked
-    more loosely than it says. Annotation keywords (title, description,
-    default, examples, $schema, $id, $comment, contractVersion,
-    graphSpecVersion) are ignored.
+    pattern, minItems, oneOf and $ref to a local '#/$defs/<name>'. Returns
+    error strings with a JSON-path-like location; an empty list means the
+    instance is valid. A schema keyword outside the subset raises
+    SchemaSubsetError, so a schema is never checked more loosely than it says.
+    Annotation keywords (title, description, default, examples, $schema,
+    $comment, contractVersion, graphSpecVersion) are ignored. $id and
+    definitions are outside the subset, as spec/README.md says.
 """
 
 import json
@@ -525,15 +525,15 @@ def load_json(path) -> Any:
 
 
 _IGNORED_KEYWORDS = frozenset({
-    "$schema", "$id", "$comment", "title", "description", "default", "examples",
-    "contractVersion", "graphSpecVersion", "$defs", "definitions",
+    "$schema", "$comment", "title", "description", "default", "examples",
+    "contractVersion", "graphSpecVersion", "$defs",
 })
 _SUBSET_KEYWORDS = frozenset({
     "type", "properties", "required", "additionalProperties", "enum", "const",
     "items", "pattern", "minItems", "oneOf", "$ref",
 })
 _MAX_DEPTH = 64
-_LOCAL_REF = re.compile(r"#/(\$defs|definitions)/([^/]+)\Z")
+_LOCAL_REF = re.compile(r"#/(\$defs)/([^/]+)\Z")
 
 
 def _type_name(value: Any) -> str:

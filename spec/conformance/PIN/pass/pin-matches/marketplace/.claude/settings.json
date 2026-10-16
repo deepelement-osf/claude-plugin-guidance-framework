@@ -4,7 +4,7 @@
       "source": {
         "source": "github",
         "repo": "example/claude-plugin-guidance",
-        "ref": "guidance-conventions--v4.0.0"
+        "ref": "guidance-conventions--v5.0.0"
       }
     }
   }

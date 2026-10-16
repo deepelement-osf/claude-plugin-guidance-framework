@@ -467,6 +467,21 @@ class SchemaNarrowingTests(unittest.TestCase):
     def test_max_items_lowered(self):
         self.assertTrue(self.narrow({"type": "array", "maxItems": 5}, {"type": "array", "maxItems": 3}))
 
+    def test_annotations_are_the_subset_ignored_keywords(self):
+        from gc_parse import _IGNORED_KEYWORDS
+        self.assertEqual(gc_checks_v._ANNOTATIONS, _IGNORED_KEYWORDS)
+
+    def test_id_and_definitions_are_not_annotations(self):
+        # The subset refuses both ($id is outside it, and definitions is not the $defs form), so
+        # narrowing must not read them as ignorable annotations.
+        self.assertNotIn("$id", gc_checks_v._ANNOTATIONS)
+        self.assertNotIn("definitions", gc_checks_v._ANNOTATIONS)
+        self.assertTrue(gc_checks_v._constrains({"$id": "https://example.invalid/x.json"}))
+        self.assertTrue(gc_checks_v._constrains({"definitions": {"id": {"type": "string"}}}))
+
+    def test_a_schema_of_annotations_alone_constrains_nothing(self):
+        self.assertFalse(gc_checks_v._constrains({"$schema": "x", "title": "t", "$defs": {}}))
+
     def test_pattern_changed(self):
         self.assertTrue(self.narrow({"type": "string"}, {"type": "string", "pattern": "^a"}))
 

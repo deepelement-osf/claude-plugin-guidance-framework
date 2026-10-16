@@ -102,7 +102,7 @@ ROLES_WITH_RESULT = ("refinement", "observer")
 REALIZATION_BRANCHES = {"agent": "agentRealization", "command": "commandRealization"}
 CONTRACT_KEYS_FROM_SCHEMA = ("frame", "input", "result")
 
-_LOCAL_REF = re.compile(r"#/(\$defs|definitions)/([^/]+)\Z")
+_LOCAL_REF = re.compile(r"#/(\$defs)/([^/]+)\Z")
 _BACKTICK_REF = re.compile(r"`([a-z0-9]+(?:-[a-z0-9]+)*(?:@[a-z0-9]+(?:-[a-z0-9]+)*)?)`")
 _BINDING_KEYS = ("concept", "name", "contractVersion")
 _BINDING_ERROR = re.compile(
@@ -113,7 +113,7 @@ _schemas: Optional[Dict[str, dict]] = None
 
 
 def schema_documents() -> Dict[str, dict]:
-    """The five schema documents, from spec/schemas when present, else the embedded copies."""
+    """The six schema documents, from spec/schemas when present, else the embedded copies."""
     global _schemas
     if _schemas is None:
         documents: Dict[str, dict] = {}
@@ -218,7 +218,7 @@ def _subset_problems(node: Any, where: str, root: dict, depth: int = 0) -> List[
             section = root.get(match.group(1))
             if not isinstance(section, dict) or match.group(2) not in section:
                 problems.append(f"{where}: $ref {ref!r} does not resolve")
-    for key in ("properties", "$defs", "definitions"):
+    for key in ("properties", "$defs"):
         section = node.get(key)
         if isinstance(section, dict):
             for name, sub in section.items():

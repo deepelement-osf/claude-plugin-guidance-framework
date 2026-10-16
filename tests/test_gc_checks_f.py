@@ -585,6 +585,28 @@ class EmbeddedSchemaTest(unittest.TestCase):
             self.assertEqual(json.loads(F._EMBEDDED[name]), spec, name)
 
 
+class SchemaDocumentSubsetTest(unittest.TestCase):
+    """A frame, input or result document is outside the subset when it uses $id or definitions, or a $ref not into $defs."""
+
+    def problems(self, document):
+        return F._subset_problems(document, "frame", document)
+
+    def test_defs_reference_is_inside_the_subset(self):
+        self.assertEqual(self.problems({"$defs": {"id": {"type": "string"}},
+                                        "type": "object", "properties": {"x": {"$ref": "#/$defs/id"}}}), [])
+
+    def test_id_is_flagged(self):
+        self.assertTrue(self.problems({"$id": "https://example.invalid/frame.json", "type": "object"}))
+
+    def test_definitions_container_and_reference_are_flagged(self):
+        self.assertTrue(self.problems({"definitions": {"id": {"type": "string"}}, "type": "object"}))
+        self.assertTrue(self.problems({"$defs": {"id": {"type": "string"}},
+                                       "type": "object", "properties": {"x": {"$ref": "#/definitions/id"}}}))
+
+    def test_schema_documents_are_six(self):
+        self.assertEqual(len(F.schema_documents()), 6)
+
+
 class RunTest(Base):
     def test_run_returns_findings_with_known_check_ids(self):
         ctx = self.build()
